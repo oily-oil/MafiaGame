@@ -39,21 +39,19 @@ public class Client {
         ActionListener sendListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 String message = textField.getText();
-
-                // [수정] /start는 항상 가능
+                //명령어 확인
                 if (message.trim().equalsIgnoreCase("/start")) {
                     out.println(message.trim());
                 }
-                // [수정] 살아있을 때만 명령어 전송 가능
                 else if (isAlive && (
                         message.trim().startsWith("/kill ") ||
                                 message.trim().startsWith("/vote ") ||
-                                message.trim().startsWith("/investigate ") || // [신규]
-                                message.trim().startsWith("/save ")         // [신규]
+                                message.trim().startsWith("/investigate ") ||
+                                message.trim().startsWith("/save ")
                 )) {
                     out.println(message.trim());
                 }
-                // [수정] 살아있을 때만 채팅 전송 가능
+                //생존시에 채팅 가능
                 else if (isAlive && !message.isEmpty()) {
                     out.println("MSG:" + message);
                 }
@@ -116,7 +114,7 @@ public class Client {
                                 messageArea.append("--- 게임이 시작되었습니다! ---\n");
                             });
                         }
-                        // [수정] 직업 할당 메시지
+                        // 직업 할당 메시지
                         else if (line.startsWith("ROLE:")) {
                             String roleName = line.substring(5); // MAFIA, CITIZEN, POLICE, DOCTOR
 
@@ -140,7 +138,6 @@ public class Client {
                                 updateTitle();
                             });
                         }
-                        // [수정] 서버 시스템 메시지 (낮/밤, 투표 결과 등)
                         else if (line.startsWith("SYSTEM:")) {
                             String systemMessage = line.substring(7);
                             SwingUtilities.invokeLater(() -> {
@@ -149,12 +146,12 @@ public class Client {
                                 // GUI 활성화/비활성화 로직 (살아있을 때만)
                                 if (isAlive) {
                                     if (systemMessage.contains("밤이 되었습니다")) {
-                                        // [수정] 시민만 비활성화 (경찰, 의사, 마피아는 활성화)
+                                        // 밤이 되면 시민 채팅 비활성화 - 추후 GUI 수정
                                         if ("시민".equals(myRole)) {
                                             textField.setEditable(false);
                                             sendButton.setEnabled(false);
                                         } else {
-                                            // 경찰, 의사, 마피아는 능력 사용을 위해 활성화
+                                            // 경찰, 의사, 마피아는 능력 사용을 위해 기능 활성화
                                             textField.setEditable(true);
                                             sendButton.setEnabled(true);
                                         }
@@ -183,7 +180,7 @@ public class Client {
         listenerThread.start();
     }
 
-    // GUI 제목을 업데이트하는 헬퍼 메소드
+    // GUI 제목을 업데이트하는 메소드
     private void updateTitle() {
         String title = "마피아 게임";
         if (myPlayerNumber > 0) {
