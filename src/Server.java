@@ -1,4 +1,3 @@
-// Server.java (수정본)
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
@@ -25,7 +24,7 @@ public class Server {
     private static GamePhase currentPhase = GamePhase.WAITING;
 
     private static Timer gameTimer = new Timer();
-    private static final long PHASE_TIME_MS = 60000; // 테스트용 10초
+    private static final long PHASE_TIME_MS = 60000; // 낮, 밤 시간
 
     private static AtomicInteger playerCounter = new AtomicInteger(1);
 
@@ -34,12 +33,12 @@ public class Server {
     // 밤 능력 대상자들
     private static ClientHandler nightKillTarget = null;
     private static ClientHandler nightSaveTarget = null;
-    private static ClientHandler nightInvestigateUser = null; // [신규] 경찰 조사 여부 기록
+    private static ClientHandler nightInvestigateUser = null;
 
 
 
     public static void main(String[] args) throws IOException {
-        System.out.println("채팅 서버가 시작되었습니다...");
+        System.out.println("게임 서버가 시작되었습니다.");
         ExecutorService pool = Executors.newFixedThreadPool(10);
 
         try (ServerSocket listener = new ServerSocket(9090)) {
@@ -49,21 +48,21 @@ public class Server {
         }
     }
 
-    // [수정] startGame - 직업 배정 로직 변경
+    //게임 시작 함수
     public static synchronized void startGame() {
         if (currentPhase != GamePhase.WAITING) return;
 
-        // [수정] 특수 직업 배정을 위해 최소 4인 필요
+        // 플레이어 수 제한
         if (clientHandlers.size() < 4) {
             broadcast("SYSTEM:게임 시작을 위해 4명 이상의 플레이어가 필요합니다.");
             return;
         }
 
-        // 게임 시작시 이전 상태 초기화
+        // 게임 시작시 능력 사용 초기화
         nightKillTarget = null;
         nightSaveTarget = null;
         nightInvestigateUser = null;
-        votes.clear(); // 투표함도 초기화
+        votes.clear(); // 투표 초기화
 
         broadcast("START_GAME");
 
@@ -112,13 +111,12 @@ public class Server {
             currentIndex++;
         }
 
-        // 게임을 "밤" 상태로 시작
+        // 게임을 밤 상태로 시작
         currentPhase = GamePhase.NIGHT;
         broadcast("SYSTEM:밤이 되었습니다. 능력을 사용할 대상을 지목하세요.");
         scheduleDayNightTimer();
     }
 
-    // [수정] scheduleDayNightTimer - 경찰 조사 기록 초기화
     private static void scheduleDayNightTimer() {
         gameTimer.schedule(new TimerTask() {
             @Override
@@ -129,24 +127,22 @@ public class Server {
                     }
 
                     if (currentPhase == GamePhase.DAY) {
-                        // [낮 -> 밤]
                         tallyVotes();
                         if (currentPhase == GamePhase.WAITING) {
                             return;
                         }
 
                         currentPhase = GamePhase.NIGHT;
-                        // [수정] 밤이 되면 능력 대상자 및 *사용자* 초기화
-                        nightKillTarget = null;
-                        nightSaveTarget = null;
-                        nightInvestigateUser = null; // [신규] 경찰 조사 횟수 리셋
+                        nightKillTarget = null; // 마피아 능력 사용
+                        nightSaveTarget = null; // 의사 능력 사용
+                        nightInvestigateUser = null; //  경찰 능력 사용
                         broadcast("SYSTEM:밤이 되었습니다. 능력을 사용할 대상을 지목하세요.");
 
                     } else if (currentPhase == GamePhase.NIGHT) {
-                        // [밤 -> 낮]
+                        // 밤에서 낮으로 변환
                         currentPhase = GamePhase.DAY;
 
-                        // [수정] 의사 활약 로직
+                        // 능력로직
                         if (nightKillTarget != null) {
                             // 마피아가 지목한 대상과 의사가 살린 대상이 같지 않을 때만 죽음
                             if (nightKillTarget != nightSaveTarget) {
@@ -160,7 +156,7 @@ public class Server {
                             broadcast("SYSTEM:지난 밤, 아무 일도 일어나지 않았습니다.");
                         }
 
-                        // 밤의 처형/세이브 후 게임 종료 확인
+                        // 밤이 지난 후 게임 종료 확인
                         if (checkGameEnd()) {
                             return;
                         }
@@ -173,7 +169,7 @@ public class Server {
         }, PHASE_TIME_MS, PHASE_TIME_MS);
     }
 
-    // tallyVotes (변경 없음)
+    // 투표 로직
     private static synchronized void tallyVotes() {
         Map<ClientHandler, Integer> voteTally = new HashMap<>();
         int livingPlayers = 0;
@@ -222,7 +218,7 @@ public class Server {
         }
     }
 
-    // handleVote (변경 없음)
+    // 투표
     public static synchronized void handleVote(ClientHandler voter, String command) {
         try {
             int targetNumber = Integer.parseInt(command.substring(6).trim());
@@ -246,7 +242,7 @@ public class Server {
         }
     }
 
-    // handleKillCommand (변경 없음)
+    // 마피아 능력 로직
     public static synchronized void handleKillCommand(ClientHandler mafia, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             mafia.sendMessage("SYSTEM:낮에는 죽일 수 없습니다.");
@@ -272,16 +268,13 @@ public class Server {
         }
     }
 
-    // [수정] handleInvestigate - 1회 제한 로직 추가
+    // 경찰 능력 로직
     public static synchronized void handleInvestigate(ClientHandler police, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             police.sendMessage("SYSTEM:낮에는 조사할 수 없습니다.");
             return;
         }
 
-        // [신규] 이미 조사했는지 확인 (nightInvestigateUser가 null이 아니면 누군가 이미 조사한 것)
-        // 여기서는 한 명의 경찰만 가정하므로, police 객체와 비교할 필요 없이 null 여부만 체크합니다.
-        // 만약 여러 명의 경찰을 가정한다면 로직이 더 복잡해져야 합니다. (현재는 경찰 1명)
         if (nightInvestigateUser != null) {
             police.sendMessage("SYSTEM:당신은 이미 조사를 완료했습니다.");
             return;
@@ -296,22 +289,20 @@ public class Server {
             } else if (target.status == PlayerStatus.DEAD) {
                 police.sendMessage("SYSTEM:이미 죽은 플레이어입니다.");
             } else {
-                // [중요] 경찰에게만 비밀리에 결과 전송
+                // 경찰에게만 조사 결과 전송
                 if (target.role == Role.MAFIA) {
                     police.sendMessage("SYSTEM:[조사결과] P" + target.playerNumber + " 님은 [마피아] 입니다.");
                 } else {
                     police.sendMessage("SYSTEM:[조사결과] P" + target.playerNumber + " 님은 [시민] 입니다.");
                 }
-
-                // [신규] 조사자로 기록 (이제 이 경찰은 이번 밤에 더 조사할 수 없음)
-                nightInvestigateUser = police;
+                nightInvestigateUser = police; //여러번 조사를 막기 위함
             }
         } catch (Exception e) {
             police.sendMessage("SYSTEM:잘못된 명령어입니다. 예: /investigate 2");
         }
     }
 
-    // handleSave (변경 없음 - 의사도 여러 번 대상을 바꿀 수 있게 허용, 최종 대상만 저장됨)
+    //의사 능력 로직
     public static synchronized void handleSave(ClientHandler doctor, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             doctor.sendMessage("SYSTEM:낮에는 살릴 수 없습니다.");
@@ -319,7 +310,7 @@ public class Server {
         }
 
         try {
-            int targetNumber = Integer.parseInt(command.substring(6).trim()); // "/save ".length() == 6
+            int targetNumber = Integer.parseInt(command.substring(6).trim());
             ClientHandler target = getPlayerByNumber(targetNumber);
 
             if (target == null) {
@@ -335,7 +326,6 @@ public class Server {
         }
     }
 
-    // getPlayerByNumber (변경 없음)
     private static ClientHandler getPlayerByNumber(int number) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -347,7 +337,7 @@ public class Server {
         return null;
     }
 
-    // broadcastToMafia (변경 없음)
+    //마피아끼리 대화
     private static void broadcastToMafia(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -358,7 +348,7 @@ public class Server {
         }
     }
 
-    // broadcast (변경 없음)
+    // 생존자, 사망자 메시지
     private static void broadcast(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -373,7 +363,7 @@ public class Server {
         }
     }
 
-    // [수정] checkGameEnd - 시민 팀(시민, 경찰, 의사) 집계 (변경 없음)
+    //게임 종료 시점 확인
     private static synchronized boolean checkGameEnd() {
         int mafiaAlive = 0;
         int citizensAlive = 0; // 시민 + 경찰 + 의사
@@ -407,7 +397,7 @@ public class Server {
         return false; // 게임 계속
     }
 
-    // endGame (변경 없음)
+    // 게임 종료시
     private static synchronized void endGame() {
         System.out.println("게임 종료.");
         gameTimer.cancel();
@@ -424,7 +414,7 @@ public class Server {
         }
     }
 
-    // --- ClientHandler 내부 클래스 --- (변경 없음)
+    //client마다 Thread실행
     private static class ClientHandler implements Runnable {
         private Socket socket;
         private PrintWriter out;
@@ -472,7 +462,6 @@ public class Server {
                         System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
                         startGame();
                     }
-                    // [신규] /investigate 라우팅
                     else if (message.trim().startsWith("/investigate ")) {
                         if (role == Role.POLICE) {
                             handleInvestigate(this, message.trim());
@@ -480,7 +469,6 @@ public class Server {
                             sendMessage("SYSTEM:경찰만 사용할 수 있는 명령어입니다.");
                         }
                     }
-                    // [신규] /save 라우팅
                     else if (message.trim().startsWith("/save ")) {
                         if (role == Role.DOCTOR) {
                             handleSave(this, message.trim());
@@ -502,7 +490,6 @@ public class Server {
                             sendMessage("SYSTEM:투표는 낮에만 할 수 있습니다.");
                         }
                     }
-                    // [수정] 일반 메시지 처리 (밤에 특수직업 채팅 차단)
                     else if (message.startsWith("MSG:")) {
                         synchronized (Server.class) {
                             if (currentPhase == GamePhase.DAY) {
