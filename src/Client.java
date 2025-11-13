@@ -1,20 +1,25 @@
-// Client.java
-import java.awt.BorderLayout;
+import javax.swing.*;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.Scanner;
-import javax.swing.*;
 
-public class Client {
+public class Client extends JFrame {
 
-    private JFrame frame = new JFrame("채팅 클라이언트");
-    private JTextArea messageArea = new JTextArea(20, 50);
-    private JTextField textField = new JTextField(40);
-    private JButton sendButton = new JButton("전송");
+    // --- GUI 컴포넌트 선언 ---
+    private JTextField nicknameField;
+    private JTextField ipAddressField;
+    private JTextField portNumberField;
+    private JButton connectButton;
+    private JTextArea roomListArea; // 게임 상태 및 참여자 목록 표시용
+    private JButton startGameButton; // "/start" 명령 전송 버튼
+    private JTextArea chatArea;
+    private JTextField inputField;
 
+    // --- 네트워크 및 게임 상태 변수 ---
     private Socket socket;
     private PrintWriter out;
     private Scanner in;
@@ -24,22 +29,145 @@ public class Client {
     private boolean isAlive = true;
 
     public Client() {
-        messageArea.setEditable(false);
-        frame.getContentPane().add(new JScrollPane(messageArea), BorderLayout.CENTER);
+        setTitle("마피아 클라이언트 (연결 전)");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
 
-        JPanel bottomPanel = new JPanel();
-        bottomPanel.add(textField);
-        bottomPanel.add(sendButton);
-        frame.getContentPane().add(bottomPanel, BorderLayout.SOUTH);
+        // GUI 레이아웃 설정
+        JPanel leftPanel = createLeftPanel();
+        add(leftPanel, BorderLayout.WEST);
 
-        frame.pack();
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setVisible(true);
+        JPanel centerPanel = createCenterPanel();
+        add(centerPanel, BorderLayout.CENTER);
+
+        JPanel rightPanel = createRightPanel();
+        add(rightPanel, BorderLayout.EAST);
+
+        // 초기 상태 설정
+        startGameButton.setEnabled(false);
+        inputField.setEnabled(false);
+
+        pack();
+        setLocationRelativeTo(null);
+        setVisible(true);
+
+        setupListeners();
+    }
+
+    // --- 1. 왼쪽 영역 생성 ---
+    private JPanel createLeftPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS)); // 세로 정렬
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.setPreferredSize(new Dimension(180, 500));
+
+        panel.add(new JLabel("닉네임:"));
+        nicknameField = new JTextField("P" + (int)(Math.random() * 1000), 10);
+        panel.add(nicknameField);
+        panel.add(Box.createVerticalStrut(5));
+
+        panel.add(new JLabel("IP 주소:"));
+        ipAddressField = new JTextField("127.0.0.1", 10);
+        panel.add(ipAddressField);
+        panel.add(Box.createVerticalStrut(5));
+
+        panel.add(new JLabel("포트 넘버:"));
+        portNumberField = new JTextField("9090", 10);
+        panel.add(portNumberField);
+        panel.add(Box.createVerticalStrut(15));
+
+        connectButton = new JButton("서버 연결");
+        connectButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(connectButton);
+        panel.add(Box.createVerticalStrut(10));
+
+        JLabel descLabel = new JLabel("<html>서버 연결 후<br>게임 참여 가능</html>", SwingConstants.CENTER);
+        descLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(descLabel);
+
+        panel.add(Box.createVerticalGlue());
+        return panel;
+    }
+
+    // --- 2. 중앙 영역 생성 ---
+    private JPanel createCenterPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.setPreferredSize(new Dimension(220, 500));
+
+        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        topPanel.add(new JLabel("참가자 목록:"));
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        roomListArea = new JTextArea("서버에 연결하세요...");
+        roomListArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(roomListArea);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        startGameButton = new JButton("게임 시작 (/start)");
+        bottomPanel.add(startGameButton);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    // --- 3. 오른쪽 영역 생성 ---
+    private JPanel createRightPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.setPreferredSize(new Dimension(350, 500));
+
+        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        topPanel.add(new JLabel("게임 대화창"));
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        chatArea = new JTextArea("게임 시작을 기다립니다...");
+        chatArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(chatArea);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        JPanel inputPanel = new JPanel(new BorderLayout());
+        inputField = new JTextField();
+        inputPanel.add(new JLabel("(입력)"), BorderLayout.WEST);
+        inputPanel.add(inputField, BorderLayout.CENTER);
+
+        panel.add(inputPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    // --- 리스너 설정 ---
+    private void setupListeners() {
+        connectButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                try {
+                    startClientConnection();
+                    // 성공 시 연결 관련 컴포넌트 비활성화
+                    connectButton.setEnabled(false);
+                    ipAddressField.setEditable(false);
+                    portNumberField.setEditable(false);
+                    nicknameField.setEditable(false);
+                    startGameButton.setEnabled(true);
+                    inputField.setEnabled(true);
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(Client.this, "연결 실패: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
 
         ActionListener sendListener = new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                String message = textField.getText();
-                //명령어 확인
+                String message;
+                if (e.getSource() == startGameButton) {
+                    message = "/start";
+                } else {
+                    message = inputField.getText();
+                }
+
+                if (out == null || message.isEmpty()) return;
+
                 if (message.trim().equalsIgnoreCase("/start")) {
                     out.println(message.trim());
                 }
@@ -51,127 +179,40 @@ public class Client {
                 )) {
                     out.println(message.trim());
                 }
-                //생존시에 채팅 가능
                 else if (isAlive && !message.isEmpty()) {
                     out.println("MSG:" + message);
                 }
 
-                textField.setText("");
+                inputField.setText("");
             }
         };
-        textField.addActionListener(sendListener);
-        sendButton.addActionListener(sendListener);
+        inputField.addActionListener(sendListener);
+        startGameButton.addActionListener(sendListener);
     }
 
-    public void start() throws IOException {
-        String serverAddress = JOptionPane.showInputDialog(
-                frame, "서버 IP 주소를 입력하세요:", "서버 접속", JOptionPane.QUESTION_MESSAGE
-        );
+    // --- 서버 연결 및 리스너 스레드 시작 ---
+    public void startClientConnection() throws IOException {
+        String serverAddress = ipAddressField.getText();
+        int port = Integer.parseInt(portNumberField.getText());
+        String nickname = nicknameField.getText();
 
-        socket = new Socket(serverAddress, 9090);
+        socket = new Socket(serverAddress, port);
         in = new Scanner(socket.getInputStream());
         out = new PrintWriter(socket.getOutputStream(), true);
 
-        // 서버로부터 메시지를 받는 스레드
+        // 닉네임 서버로 전송
+        out.println("NICKNAME:" + nickname);
+
         Thread listenerThread = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
                     while (in.hasNextLine()) {
                         String line = in.nextLine();
-
-                        // 게임 종료 핸들러
-                        if (line.equals("GAME_OVER")) {
-                            myRole = "";
-                            isAlive = true; // 다음 게임을 위해 리셋
-                            SwingUtilities.invokeLater(() -> {
-                                messageArea.append("\n--- 게임이 종료되었습니다. --- \n/start를 입력하여 새 게임을 시작할 수 있습니다.\n");
-                                textField.setEditable(true); // /start를 칠 수 있게 활성화
-                                sendButton.setEnabled(true);
-                                updateTitle(); // 제목 리셋
-                            });
-                        }
-                        // 플레이어 번호 수신
-                        else if (line.startsWith("PLAYER_NUM:")) {
-                            myPlayerNumber = Integer.parseInt(line.substring(11));
-                            SwingUtilities.invokeLater(() -> {
-                                updateTitle(); // 제목 업데이트
-                            });
-                        }
-                        // 사망 메시지 수신
-                        else if (line.equals("YOU_DIED")) {
-                            isAlive = false;
-                            SwingUtilities.invokeLater(() -> {
-                                messageArea.append("\n!!! 당신은 죽었습니다 !!!\n");
-                                textField.setEditable(false);
-                                sendButton.setEnabled(false);
-                                updateTitle(); // 제목 업데이트
-                            });
-                        }
-                        // 게임 시작 공지
-                        else if (line.equals("START_GAME")) {
-                            SwingUtilities.invokeLater(() -> {
-                                messageArea.append("--- 게임이 시작되었습니다! ---\n");
-                            });
-                        }
-                        // 직업 할당 메시지
-                        else if (line.startsWith("ROLE:")) {
-                            String roleName = line.substring(5); // MAFIA, CITIZEN, POLICE, DOCTOR
-
-                            // 영어 직업명을 한글로 변환
-                            if (roleName.equals("MAFIA")) myRole = "마피아";
-                            else if (roleName.equals("CITIZEN")) myRole = "시민";
-                            else if (roleName.equals("POLICE")) myRole = "경찰";
-                            else if (roleName.equals("DOCTOR")) myRole = "의사";
-                            else myRole = "알 수 없음";
-
-                            SwingUtilities.invokeLater(() -> {
-                                messageArea.append("\n!!! 당신의 직업은 '" + myRole + "'입니다 !!!\n\n");
-                                // 직업별 능력 힌트 추가
-                                if (myRole.equals("경찰")) {
-                                    messageArea.append("-> 밤에 /investigate [번호] 를 사용해 용의자를 조사할 수 있습니다.\n");
-                                } else if (myRole.equals("의사")) {
-                                    messageArea.append("-> 밤에 /save [번호] 를 사용해 1명을 살릴 수 있습니다.\n");
-                                } else if (myRole.equals("마피아")) {
-                                    messageArea.append("-> 밤에 /kill [번호] 를 사용해 1명을 처형할 수 있습니다.\n");
-                                }
-                                updateTitle();
-                            });
-                        }
-                        else if (line.startsWith("SYSTEM:")) {
-                            String systemMessage = line.substring(7);
-                            SwingUtilities.invokeLater(() -> {
-                                messageArea.append(systemMessage + "\n");
-
-                                // GUI 활성화/비활성화 로직 (살아있을 때만)
-                                if (isAlive) {
-                                    if (systemMessage.contains("밤이 되었습니다")) {
-                                        // 밤이 되면 시민 채팅 비활성화 - 추후 GUI 수정
-                                        if ("시민".equals(myRole)) {
-                                            textField.setEditable(false);
-                                            sendButton.setEnabled(false);
-                                        } else {
-                                            // 경찰, 의사, 마피아는 능력 사용을 위해 기능 활성화
-                                            textField.setEditable(true);
-                                            sendButton.setEnabled(true);
-                                        }
-                                    } else if (systemMessage.contains("낮이 되었습니다")) {
-                                        // 낮은 모두 활성화
-                                        textField.setEditable(true);
-                                        sendButton.setEnabled(true);
-                                    }
-                                }
-                            });
-                        }
-                        // 일반 채팅 메시지
-                        else if (line.startsWith("P") && line.contains(": ") || line.startsWith("[마피아채팅]")) {
-                            SwingUtilities.invokeLater(() -> {
-                                messageArea.append(line + "\n");
-                            });
-                        }
+                        processServerMessage(line);
                     }
                 } catch (Exception e) {
-                    System.out.println("서버 연결이 끊겼습니다: " + e.getMessage());
+                    SwingUtilities.invokeLater(() -> chatArea.append("\n!!! 서버 연결이 끊겼습니다: " + e.getMessage() + "\n"));
                 } finally {
                     try { socket.close(); } catch (IOException e) {}
                 }
@@ -180,7 +221,71 @@ public class Client {
         listenerThread.start();
     }
 
-    // GUI 제목을 업데이트하는 메소드
+    // --- 서버로부터 받은 메시지 처리 ---
+    private void processServerMessage(String line) {
+        SwingUtilities.invokeLater(() -> {
+            if (line.equals("GAME_OVER")) {
+                myRole = "";
+                isAlive = true;
+                chatArea.append("\n--- 게임이 종료되었습니다. --- \n/start를 입력하여 새 게임을 시작할 수 있습니다.\n");
+                inputField.setEnabled(true);
+                startGameButton.setEnabled(true);
+                updateTitle();
+            }
+            else if (line.startsWith("PLAYER_NUM:")) {
+                myPlayerNumber = Integer.parseInt(line.substring(11));
+                updateTitle();
+            }
+            else if (line.equals("YOU_DIED")) {
+                isAlive = false;
+                chatArea.append("\n!!! 당신은 죽었습니다 !!!\n");
+                inputField.setEnabled(false);
+                updateTitle();
+            }
+            else if (line.equals("START_GAME")) {
+                chatArea.append("--- 게임이 시작되었습니다! ---\n");
+                startGameButton.setEnabled(false);
+            }
+            else if (line.startsWith("ROLE:")) {
+                String roleName = line.substring(5);
+                if (roleName.equals("MAFIA")) myRole = "마피아";
+                else if (roleName.equals("CITIZEN")) myRole = "시민";
+                else if (roleName.equals("POLICE")) myRole = "경찰";
+                else if (roleName.equals("DOCTOR")) myRole = "의사";
+                else myRole = "알 수 없음";
+
+                chatArea.append("\n!!! 당신의 직업은 '" + myRole + "'입니다 !!!\n\n");
+                if (myRole.equals("경찰")) chatArea.append("-> 밤에 /investigate [번호] 로 조사.\n");
+                else if (myRole.equals("의사")) chatArea.append("-> 밤에 /save [번호] 로 살리기.\n");
+                else if (myRole.equals("마피아")) chatArea.append("-> 밤에 /kill [번호] 로 처형.\n");
+
+                updateTitle();
+            }
+            // 시스템 메시지 (낮/밤 제어 포함)
+            else if (line.startsWith("SYSTEM:")) {
+                String systemMessage = line.substring(7);
+                chatArea.append(systemMessage + "\n");
+
+                if (isAlive) {
+                    if (systemMessage.contains("밤이 되었습니다")) {
+                        boolean enableInput = !("시민".equals(myRole));
+                        inputField.setEnabled(enableInput);
+                    } else if (systemMessage.contains("낮이 되었습니다")) {
+                        inputField.setEnabled(true);
+                    }
+                }
+            }
+            // 참가자 목록 업데이트 메시지
+            else if (line.startsWith("PLAYERS_LIST:")) {
+                roomListArea.setText("--- 참가자 (" + line.substring(13).split(",").length + "명) ---\n" + line.substring(13).replace(",", "\n"));
+            }
+            // 일반 채팅 메시지
+            else if (line.startsWith("P") && line.contains(": ") || line.startsWith("[마피아채팅]")) {
+                chatArea.append(line + "\n");
+            }
+        });
+    }
+
     private void updateTitle() {
         String title = "마피아 게임";
         if (myPlayerNumber > 0) {
@@ -192,11 +297,12 @@ public class Client {
         if (!isAlive) {
             title += " [사망]";
         }
-        frame.setTitle(title);
+        setTitle(title);
     }
 
-    public static void main(String[] args) throws IOException {
-        Client client = new Client();
-        client.start();
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            new Client();
+        });
     }
 }
