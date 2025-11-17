@@ -34,11 +34,6 @@ public class Client extends JFrame {
         // 서버 연결 화면을 처음에 보여주기 위해 연결 화면 패널을 BorderLayout 중앙에 배치
         add(connectionPanel, BorderLayout.CENTER);
 
-        // 입력 필드 추가
-        inputField = new JTextField();
-        inputField.addActionListener(e -> sendMessage(inputField.getText()));  // 메시지 전송 이벤트 리스너 추가
-        add(inputField, BorderLayout.SOUTH);  // 화면 하단에 배치
-
         // 창 크기 설정 및 보기
         pack();
         setLocationRelativeTo(null);
@@ -57,6 +52,7 @@ public class Client extends JFrame {
     public void showWaitingPanel() {
         removeAllPanels();
         add(waitingGamePanel, BorderLayout.CENTER);
+        setSize(500, 500);
         revalidate();  // 화면 갱신
         repaint();
     }
@@ -65,6 +61,7 @@ public class Client extends JFrame {
     public void showGamePanel() {
         removeAllPanels();
         add(gamePanel, BorderLayout.CENTER);
+        setSize(600, 400);
         revalidate();  // 화면 갱신
         repaint();
     }

@@ -9,6 +9,7 @@ public class GamePanel extends JPanel {
     public GamePanel(Client client) {
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setPreferredSize(new Dimension(500, 600));
 
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         topPanel.add(new JLabel("게임 대화창"));
