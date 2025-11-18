@@ -320,7 +320,7 @@ public class Server {
         }
 
         try {
-            int targetNumber = Integer.parseInt(command.substring(13).trim());
+            int targetNumber = Integer.parseInt(command.substring(6).trim());
             ClientHandler target = getPlayerByNumber(targetNumber);
 
             if (target == null) {
@@ -526,27 +526,43 @@ public class Server {
                         System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
                         startGame();
                     }
-                    else if (message.trim().startsWith("/investigate ")) {
-                        if (role == Role.POLICE) {
-                            handleInvestigate(this, message.trim());
-                        } else {
-                            sendMessage("SYSTEM:경찰만 사용할 수 있는 명령어입니다.");
+                    else if(message.trim().startsWith("/skill "))
+                    {
+                        switch (role){
+                            case POLICE:
+                                handleInvestigate(this, message.trim());
+                                break;
+                            case DOCTOR:
+                                handleSave(this, message.trim());
+                                break;
+                            case MAFIA:
+                                handleKillCommand(this, message.trim());
+                                break;
+                            case CITIZEN:
+                                sendMessage("SYSTEM:시민은 능력을 사용할 수 없습니다.");
                         }
                     }
-                    else if (message.trim().startsWith("/save ")) {
-                        if (role == Role.DOCTOR) {
-                            handleSave(this, message.trim());
-                        } else {
-                            sendMessage("SYSTEM:의사만 사용할 수 있는 명령어입니다.");
-                        }
-                    }
-                    else if (message.trim().startsWith("/kill ")) {
-                        if (role == Role.MAFIA) {
-                            handleKillCommand(this, message.trim());
-                        } else {
-                            sendMessage("SYSTEM:마피아만 사용할 수 있는 명령어입니다.");
-                        }
-                    }
+//                    else if (message.trim().startsWith("/investigate ")) {
+//                        if (role == Role.POLICE) {
+//                            handleInvestigate(this, message.trim());
+//                        } else {
+//                            sendMessage("SYSTEM:경찰만 사용할 수 있는 명령어입니다.");
+//                        }
+//                    }
+//                    else if (message.trim().startsWith("/save ")) {
+//                        if (role == Role.DOCTOR) {
+//                            handleSave(this, message.trim());
+//                        } else {
+//                            sendMessage("SYSTEM:의사만 사용할 수 있는 명령어입니다.");
+//                        }
+//                    }
+//                    else if (message.trim().startsWith("/kill ")) {
+//                        if (role == Role.MAFIA) {
+//                            handleKillCommand(this, message.trim());
+//                        } else {
+//                            sendMessage("SYSTEM:마피아만 사용할 수 있는 명령어입니다.");
+//                        }
+//                    }
                     else if (message.trim().startsWith("/vote ")) {
                         if (currentPhase == GamePhase.DAY) {
                             handleVote(this, message.trim());
