@@ -10,10 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService; // 추가
+import java.util.concurrent.TimeUnit; // 추가
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import java.awt.event.ActionEvent;
@@ -27,8 +27,12 @@ public class Server {
     private enum GamePhase { WAITING, DAY, NIGHT }
     private static GamePhase currentPhase = GamePhase.WAITING;
 
-    private static Timer gameTimer = new Timer();
-    private static final long PHASE_TIME_MS = 60000; // 낮, 밤 시간
+    // 🌟 수정/추가: ScheduledExecutorService를 사용하여 스케줄링
+    private static ScheduledExecutorService phaseScheduler = Executors.newSingleThreadScheduledExecutor();
+    private static ScheduledExecutorService timerUpdater = Executors.newSingleThreadScheduledExecutor();
+
+    private static final long PHASE_TIME_SECONDS = 60; // 단계당 시간 (60초)
+    private static volatile long currentPhaseTimeLeft = 0; // 현재 단계의 남은 시간 (volatile)
 
     private static AtomicInteger playerCounter = new AtomicInteger(1);
 
@@ -39,7 +43,7 @@ public class Server {
     private static ClientHandler nightSaveTarget = null;
     private static ClientHandler nightInvestigateUser = null;
 
-    // 역할 및 상태 Enum 정의 (기존 코드에 없었으므로 추가)
+    // 역할 및 상태 Enum 정의
     private enum Role { NONE, MAFIA, CITIZEN, POLICE, DOCTOR }
     private enum PlayerStatus { ALIVE, DEAD }
 
@@ -81,6 +85,18 @@ public class Server {
                 System.err.println("서버 리스너 오류: " + e.getMessage());
             }
         }).start();
+
+        // 🌟 추가: 1초마다 클라이언트에게 타이머 정보 전송
+        timerUpdater.scheduleAtFixedRate(() -> {
+            // 남은 시간을 1초 감소시킵니다. (WAITING 상태가 아닐 때만)
+            if (currentPhase != GamePhase.WAITING && currentPhaseTimeLeft > 0) {
+                currentPhaseTimeLeft--;
+            }
+
+            // 모든 플레이어에게 현재 상태와 남은 시간을 전송합니다.
+            // 형식: TIMER:PHASE:SECONDS_LEFT
+            broadcast("TIMER:" + currentPhase.name() + ":" + currentPhaseTimeLeft);
+        }, 0, 1, TimeUnit.SECONDS);
     }
 
 
@@ -124,18 +140,22 @@ public class Server {
         }
 
         // 2. 경찰 배정
-        ClientHandler police = handlersList.get(currentIndex);
-        police.role = Role.POLICE;
-        police.sendMessage("ROLE:POLICE");
-        System.out.println("경찰: P" + police.playerNumber + " (" + police.name + ")");
-        currentIndex++;
+        if (currentIndex < numPlayers) {
+            ClientHandler police = handlersList.get(currentIndex);
+            police.role = Role.POLICE;
+            police.sendMessage("ROLE:POLICE");
+            System.out.println("경찰: P" + police.playerNumber + " (" + police.name + ")");
+            currentIndex++;
+        }
 
         // 3. 의사 배정
-        ClientHandler doctor = handlersList.get(currentIndex);
-        doctor.role = Role.DOCTOR;
-        doctor.sendMessage("ROLE:DOCTOR");
-        System.out.println("의사: P" + doctor.playerNumber + " (" + doctor.name + ")");
-        currentIndex++;
+        if (currentIndex < numPlayers) {
+            ClientHandler doctor = handlersList.get(currentIndex);
+            doctor.role = Role.DOCTOR;
+            doctor.sendMessage("ROLE:DOCTOR");
+            System.out.println("의사: P" + doctor.playerNumber + " (" + doctor.name + ")");
+            currentIndex++;
+        }
 
         // 4. 나머지 시민 배정
         while (currentIndex < numPlayers) {
@@ -154,60 +174,65 @@ public class Server {
     }
 
     private static void scheduleDayNightTimer() {
-        gameTimer.cancel(); // 기존 타이머 취소
-        gameTimer = new Timer(); // 새 타이머 생성
+        // 기존 스케줄 취소
+        phaseScheduler.shutdownNow();
+        phaseScheduler = Executors.newSingleThreadScheduledExecutor();
 
-        gameTimer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                synchronized (clientHandlers) {
+        // 🌟 수정: 단계가 시작될 때 남은 시간을 초기 설정값으로 리셋만 합니다.
+        currentPhaseTimeLeft = PHASE_TIME_SECONDS;
+
+        // 🌟 수정: 단계 전환 로직을 phaseScheduler에 등록 (PHASE_TIME_SECONDS 후에 실행)
+        phaseScheduler.schedule(() -> {
+            synchronized (clientHandlers) {
+                if (currentPhase == GamePhase.WAITING) {
+                    return;
+                }
+
+                if (currentPhase == GamePhase.DAY) {
+                    tallyVotes();
                     if (currentPhase == GamePhase.WAITING) {
                         return;
                     }
 
-                    if (currentPhase == GamePhase.DAY) {
-                        tallyVotes();
-                        if (currentPhase == GamePhase.WAITING) {
-                            return;
-                        }
+                    currentPhase = GamePhase.NIGHT;
+                    nightKillTarget = null;
+                    nightSaveTarget = null;
+                    nightInvestigateUser = null;
+                    broadcast("SYSTEM:밤이 되었습니다. 능력을 사용할 대상을 지목하세요.");
 
-                        currentPhase = GamePhase.NIGHT;
-                        nightKillTarget = null;
-                        nightSaveTarget = null;
-                        nightInvestigateUser = null;
-                        broadcast("SYSTEM:밤이 되었습니다. 능력을 사용할 대상을 지목하세요.");
+                } else if (currentPhase == GamePhase.NIGHT) {
+                    currentPhase = GamePhase.DAY;
 
-                    } else if (currentPhase == GamePhase.NIGHT) {
-                        currentPhase = GamePhase.DAY;
-
-                        // 능력로직
-                        if (nightKillTarget != null) {
-                            if (nightKillTarget != nightSaveTarget) {
-                                nightKillTarget.status = PlayerStatus.DEAD;
-                                broadcast("SYSTEM:지난 밤, " + nightKillTarget.name + "(P" + nightKillTarget.playerNumber + ") 님이 마피아에게 살해당했습니다.");
-                                nightKillTarget.sendMessage("YOU_DIED");
-                            } else {
-                                broadcast("SYSTEM:지난 밤, 의사의 활약으로 누군가가 기적적으로 살아났습니다!");
-                            }
+                    // 능력로직
+                    if (nightKillTarget != null) {
+                        if (nightKillTarget != nightSaveTarget) {
+                            nightKillTarget.status = PlayerStatus.DEAD;
+                            broadcast("SYSTEM:지난 밤, " + nightKillTarget.name + "(P" + nightKillTarget.playerNumber + ") 님이 마피아에게 살해당했습니다.");
+                            nightKillTarget.sendMessage("YOU_DIED");
                         } else {
-                            broadcast("SYSTEM:지난 밤, 아무 일도 일어나지 않았습니다.");
+                            broadcast("SYSTEM:지난 밤, 의사의 활약으로 누군가가 기적적으로 살아났습니다!");
                         }
-
-                        // 밤이 지난 후 게임 종료 확인
-                        if (checkGameEnd()) {
-                            return;
-                        }
-
-                        broadcast("SYSTEM:낮이 되었습니다. 토론 및 투표를 시작하세요. (/vote 번호)");
-                        votes.clear();
-                        broadcastPlayerList(); // 사망자 발생 시 목록 업데이트
+                    } else {
+                        broadcast("SYSTEM:지난 밤, 아무 일도 일어나지 않았습니다.");
                     }
+
+                    // 밤이 지난 후 게임 종료 확인
+                    if (checkGameEnd()) {
+                        return;
+                    }
+
+                    broadcast("SYSTEM:낮이 되었습니다. 토론 및 투표를 시작하세요. (/vote 번호)");
+                    votes.clear();
+                    broadcastPlayerList(); // 사망자 발생 시 목록 업데이트
                 }
+
+                // 🌟 단계 전환 후, 다음 단계의 타이머를 재시작
+                scheduleDayNightTimer();
             }
-        }, PHASE_TIME_MS, PHASE_TIME_MS);
+        }, PHASE_TIME_SECONDS, TimeUnit.SECONDS); // 60초 후에 실행
     }
 
-    // 투표 로직
+    // 투표 로직 (기존과 동일)
     private static synchronized void tallyVotes() {
         Map<ClientHandler, Integer> voteTally = new HashMap<>();
         int livingPlayers = 0;
@@ -257,7 +282,7 @@ public class Server {
         }
     }
 
-    // 투표
+    // 투표 (기존과 동일)
     public static synchronized void handleVote(ClientHandler voter, String command) {
         try {
             int targetNumber = Integer.parseInt(command.substring(6).trim());
@@ -281,7 +306,7 @@ public class Server {
         }
     }
 
-    // 마피아 능력 로직
+    // 마피아 능력 로직 (기존과 동일)
     public static synchronized void handleKillCommand(ClientHandler mafia, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             mafia.sendMessage("SYSTEM:낮에는 죽일 수 없습니다.");
@@ -307,7 +332,7 @@ public class Server {
         }
     }
 
-    // 경찰 능력 로직
+    // 경찰 능력 로직 (기존과 동일)
     public static synchronized void handleInvestigate(ClientHandler police, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             police.sendMessage("SYSTEM:낮에는 조사할 수 없습니다.");
@@ -340,7 +365,7 @@ public class Server {
         }
     }
 
-    //의사 능력 로직
+    //의사 능력 로직 (기존과 동일)
     public static synchronized void handleSave(ClientHandler doctor, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             doctor.sendMessage("SYSTEM:낮에는 살릴 수 없습니다.");
@@ -375,7 +400,7 @@ public class Server {
         return null;
     }
 
-    // 마피아끼리 대화
+    // 마피아끼리 대화 (기존과 동일)
     private static void broadcastToMafia(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -386,12 +411,13 @@ public class Server {
         }
     }
 
-    // 생존자, 사망자 메시지
+    // 생존자, 사망자 메시지 (기존과 동일)
     private static void broadcast(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
                 if (currentPhase == GamePhase.DAY || currentPhase == GamePhase.NIGHT) {
-                    if (handler.status == PlayerStatus.ALIVE || message.startsWith("SYSTEM:지난 밤")) { // 사망 메시지는 모두에게
+                    // 🌟 수정: TIMER 메시지는 항상 모두에게 전송
+                    if (message.startsWith("TIMER:") || handler.status == PlayerStatus.ALIVE || message.startsWith("SYSTEM:지난 밤")) {
                         handler.sendMessage(message);
                     }
                 } else {
@@ -401,7 +427,7 @@ public class Server {
         }
     }
 
-    // 플레이어 목록을 클라이언트에게 전송하는 메서드 (ClientGUI의 중앙 영역 업데이트용)
+    // 플레이어 목록을 클라이언트에게 전송하는 메서드 (기존과 동일)
     private static void broadcastPlayerList() {
         StringBuilder sb = new StringBuilder();
         synchronized (clientHandlers) {
@@ -415,7 +441,7 @@ public class Server {
         broadcast("PLAYERS_LIST:" + sb.toString());
     }
 
-    //게임 종료 시점 확인
+    //게임 종료 시점 확인 (기존과 동일)
     private static synchronized boolean checkGameEnd() {
         int mafiaAlive = 0;
         int citizensAlive = 0;
@@ -452,10 +478,10 @@ public class Server {
     // 게임 종료시
     private static synchronized void endGame() {
         System.out.println("게임 종료.");
-        gameTimer.cancel();
-        currentPhase = GamePhase.WAITING;
+        phaseScheduler.shutdownNow(); // 🌟 단계 전환 스케줄러만 종료
 
-        gameTimer = new Timer();
+        currentPhase = GamePhase.WAITING;
+        currentPhaseTimeLeft = 0; // 🌟 남은 시간 0으로 리셋. (timerUpdater가 WAITING 상태 전송)
 
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -517,6 +543,10 @@ public class Server {
                 while (in.hasNextLine()) {
                     String message = in.nextLine();
 
+                    if (message.startsWith("TIMER:")) { // 🌟 클라이언트에서 타이머 정보는 무시
+                        continue;
+                    }
+
                     if (status == PlayerStatus.DEAD && !message.trim().equalsIgnoreCase("/start")) {
                         sendMessage("SYSTEM:당신은 죽었습니다. 아무것도 할 수 없습니다.");
                         continue;
@@ -528,6 +558,10 @@ public class Server {
                     }
                     else if(message.trim().startsWith("/skill "))
                     {
+                        if (currentPhase != GamePhase.NIGHT) {
+                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 있습니다.");
+                            continue;
+                        }
                         switch (role){
                             case POLICE:
                                 handleInvestigate(this, message.trim());
@@ -542,27 +576,6 @@ public class Server {
                                 sendMessage("SYSTEM:시민은 능력을 사용할 수 없습니다.");
                         }
                     }
-//                    else if (message.trim().startsWith("/investigate ")) {
-//                        if (role == Role.POLICE) {
-//                            handleInvestigate(this, message.trim());
-//                        } else {
-//                            sendMessage("SYSTEM:경찰만 사용할 수 있는 명령어입니다.");
-//                        }
-//                    }
-//                    else if (message.trim().startsWith("/save ")) {
-//                        if (role == Role.DOCTOR) {
-//                            handleSave(this, message.trim());
-//                        } else {
-//                            sendMessage("SYSTEM:의사만 사용할 수 있는 명령어입니다.");
-//                        }
-//                    }
-//                    else if (message.trim().startsWith("/kill ")) {
-//                        if (role == Role.MAFIA) {
-//                            handleKillCommand(this, message.trim());
-//                        } else {
-//                            sendMessage("SYSTEM:마피아만 사용할 수 있는 명령어입니다.");
-//                        }
-//                    }
                     else if (message.trim().startsWith("/vote ")) {
                         if (currentPhase == GamePhase.DAY) {
                             handleVote(this, message.trim());
@@ -585,6 +598,9 @@ public class Server {
                                     System.out.println("[밤-시민팀] P" + playerNumber + " 메시지 차단");
                                     sendMessage("SYSTEM:밤에는 능력을 사용하거나 마피아만 대화할 수 있습니다.");
                                 }
+                            } else {
+                                System.out.println("[대기중] P" + playerNumber + ": " + message.substring(4));
+                                broadcast("P" + playerNumber + ": " + message.substring(4));
                             }
                         }
                     }

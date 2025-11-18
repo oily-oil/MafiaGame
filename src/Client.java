@@ -80,7 +80,17 @@ public class Client {
 
                 SwingUtilities.invokeLater(() -> {
                     // 플레이어 목록
-                    if (msg.startsWith("PLAYERS_LIST:")) {
+                    if (msg.startsWith("TIMER:")) {
+                        // TIMER:PHASE:SECONDS_LEFT 형식
+                        String[] parts = msg.substring(6).split(":");
+                        if (parts.length == 2) {
+                            String phase = parts[0];
+                            int secondsLeft = Integer.parseInt(parts[1]);
+                            // GamePanel의 updateTimer 메서드 호출
+                            gamePanel.updateTimer(phase, secondsLeft);
+                        }
+                    }
+                    else if (msg.startsWith("PLAYERS_LIST:")) {
                         String list = msg.substring(13);
                         List<String> players = Arrays.asList(list.split(","));
                         if (!inGame) {
