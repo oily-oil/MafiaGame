@@ -110,7 +110,7 @@ public class GamePanel extends JPanel {
             btn.setFocusable(false);
 
             btn.addActionListener(e -> {
-                selectedPlayer = p;
+                selectedPlayer = p.substring(1,2);
                 highlightSelectedButton(btn);
             });
 

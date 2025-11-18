@@ -406,7 +406,10 @@ public class Server {
         StringBuilder sb = new StringBuilder();
         synchronized (clientHandlers) {
             for (ClientHandler h : clientHandlers) {
-                sb.append(h.playerNumber);
+                if (sb.length() > 0) sb.append(",");
+                String statusText = (h.status == PlayerStatus.ALIVE) ? "생존" : "사망";
+                String roleText = (currentPhase == GamePhase.WAITING) ? "" : " [" + h.role.toString().charAt(0) + "]"; // 대기 중에는 역할 숨김
+                sb.append("P").append(h.playerNumber).append(" - ").append(h.name).append(" (").append(statusText).append(")").append(roleText);
             }
         }
         broadcast("PLAYERS_LIST:" + sb.toString());
