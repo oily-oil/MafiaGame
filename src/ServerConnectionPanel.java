@@ -20,10 +20,14 @@ public class ServerConnectionPanel extends JPanel {
         connectButton = new JButton("서버 연결");
         connectButton.addActionListener(e -> {
             try {
-                client.startClientConnection();
-                client.showWaitingPanel();
+                String nick = getNickname();
+                String ip = getIpAddress();
+                int port = getPort();
+                client.connectToServer(nick, ip, port);
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "포트 번호가 올바르지 않습니다.", "오류", JOptionPane.ERROR_MESSAGE);
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(client, "연결 실패: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "연결 실패: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
             }
         });
 
@@ -50,14 +54,14 @@ public class ServerConnectionPanel extends JPanel {
     }
 
     public String getNickname() {
-        return nicknameField.getText();
+        return nicknameField.getText().trim();
     }
 
     public String getIpAddress() {
-        return ipAddressField.getText();
+        return ipAddressField.getText().trim();
     }
 
     public int getPort() {
-        return Integer.parseInt(portNumberField.getText());
+        return Integer.parseInt(portNumberField.getText().trim());
     }
 }
