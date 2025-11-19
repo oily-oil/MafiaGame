@@ -29,6 +29,7 @@ public class Client {
         frame.setSize(600, 700);
 
         // 패널 생성 (this를 전달)
+        // [수정] 아래 클래스는 외부에 정의되어 있어야 합니다.
         connectionPanel = new ServerConnectionPanel(this);
         waitingGamePanel = new WaitingGamePanel(this);
         gamePanel = new GamePanel(this);
@@ -79,7 +80,7 @@ public class Client {
                 System.out.println("[SERVER] " + msg);
 
                 SwingUtilities.invokeLater(() -> {
-                    // 플레이어 목록
+                    // 1. TIMER: (프로토콜 메시지)
                     if (msg.startsWith("TIMER:")) {
                         // TIMER:PHASE:SECONDS_LEFT 형식
                         String[] parts = msg.substring(6).split(":");
@@ -89,7 +90,10 @@ public class Client {
                             // GamePanel의 updateTimer 메서드 호출
                             gamePanel.updateTimer(phase, secondsLeft);
                         }
+                        return; // [수정] 메시지 처리 후 종료 (로그 출력 방지)
                     }
+
+                    // 2. PLAYERS_LIST: (프로토콜 메시지)
                     else if (msg.startsWith("PLAYERS_LIST:")) {
                         String list = msg.substring(13);
                         List<String> players = Arrays.asList(list.split(","));
@@ -99,46 +103,83 @@ public class Client {
                         } else {
                             gamePanel.updatePlayerList(players);
                         }
+                        return; // [수정] 메시지 처리 후 종료 (로그 출력 방지)
                     }
-                    // 게임 시작
+
+                    // 3. START_GAME:
                     else if (msg.startsWith("START_GAME")) {
                         inGame = true;
                         showGamePanel();
                         gamePanel.appendChatMessage("게임이 시작되었습니다.");
+                        waitingGamePanel.disableStartButton();
+                        return; // [수정] 메시지 처리 후 종료
                     }
-                    // 역할
+
+                    // 4. ROLE:
                     else if (msg.startsWith("ROLE:")) {
                         myRole = msg.substring(5);
                         gamePanel.appendChatMessage("[역할] 당신은 '" + myRole + "' 입니다.");
+                        return; // [수정] 메시지 처리 후 종료
                     }
-                    // 채팅
+
+                    // 5. CHAT: (일반 채팅 메시지)
                     else if (msg.startsWith("CHAT:")) {
-                        gamePanel.appendChatMessage(msg.substring(5));
+                        // [수정] 채팅 메시지를 게임 상태에 따라 라우팅
+                        String chatMsg = msg.substring(5);
+                        if (!inGame) {
+                            waitingGamePanel.appendChatMessage(chatMsg);
+                        } else {
+                            gamePanel.appendChatMessage(chatMsg);
+                        }
+                        return; // [수정] 메시지 처리 후 종료
                     }
-                    // 사망
+
+                    // 6. YOU_DIED:
                     else if (msg.equals("YOU_DIED")) {
                         isAlive = false;
                         gamePanel.appendChatMessage("⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.");
+                        return; // [수정] 메시지 처리 후 종료
                     }
-                    // 낮/밤 표시
-                    else if (msg.startsWith("TIME:")) {
-                        gamePanel.appendChatMessage("[시간] " + msg.substring(5));
-                    }
-                    // 경찰 조사 결과
-                    else if (msg.startsWith("DETECTIVE_RESULT")) {
-                        gamePanel.appendChatMessage("[조사 결과] " + msg.substring("DETECTIVE_RESULT".length()).trim());
-                    }
-                    // 투표 갱신
-                    else if (msg.startsWith("VOTE_UPDATE")) {
-                        gamePanel.appendChatMessage("[투표] " + msg.substring("VOTE_UPDATE".length()).trim());
-                    }
-                    // 게임 종료
+
+                    // 7. GAME_OVER:
                     else if (msg.startsWith("GAME_OVER")) {
                         gamePanel.appendChatMessage("[게임 종료] " + msg.substring("GAME_OVER".length()).trim());
                         JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + msg.substring("GAME_OVER".length()).trim());
                         resetToLobby();
+                        return; // [수정] 메시지 처리 후 종료
                     }
-                    // 기타 메시지(포맷에 없으면 그대로 출력)
+
+                    // 8. SYSTEM: (능력 응답, 입장/퇴장/인원 부족 알림)
+                    else if (msg.startsWith("SYSTEM:")) {
+                        String systemMsg = msg.substring("SYSTEM:".length()).trim();
+                        // [수정] 시스템 메시지를 게임 상태에 따라 라우팅
+                        if (!inGame) {
+                            waitingGamePanel.appendChatMessage("[시스템] " + systemMsg);
+                        } else {
+                            gamePanel.appendChatMessage("[시스템] " + systemMsg);
+                        }
+                        return; // [수정] 메시지 처리 후 종료
+                    }
+
+                    // 9. TIME:
+                    else if (msg.startsWith("TIME:")) {
+                        gamePanel.appendChatMessage("[시간] " + msg.substring(5));
+                        return; // [수정] 메시지 처리 후 종료
+                    }
+
+                    // 10. DETECTIVE_RESULT:
+                    else if (msg.startsWith("DETECTIVE_RESULT")) {
+                        gamePanel.appendChatMessage("[조사 결과] " + msg.substring("DETECTIVE_RESULT".length()).trim());
+                        return; // [수정] 메시지 처리 후 종료
+                    }
+
+                    // 11. VOTE_UPDATE:
+                    else if (msg.startsWith("VOTE_UPDATE")) {
+                        gamePanel.appendChatMessage("[투표] " + msg.substring("VOTE_UPDATE".length()).trim());
+                        return; // [수정] 메시지 처리 후 종료
+                    }
+
+                    // 12. 기타 메시지(포맷에 없으면 그대로 출력)
                     else {
                         gamePanel.appendChatMessage(msg);
                     }
@@ -171,7 +212,8 @@ public class Client {
             out.println(msg);
         } else {
             // 일반 채팅 메시지
-            out.println(msg);
+            // [수정] 서버가 MSG: prefix를 기대하지 않으므로 그대로 전송 (이 메시지는 Server.java의 else if(message.startsWith("MSG:")) 블록으로 들어갑니다.)
+            out.println("MSG:" + msg);
         }
     }
 
@@ -197,9 +239,11 @@ public class Client {
         myRole = "";
 
         SwingUtilities.invokeLater(() -> {
+            gamePanel.clearGameState();
+
             showWaitingPanel();
             waitingGamePanel.clearPlayerList();
-            gamePanel.appendChatMessage("====== 새로운 게임을 기다립니다 ======");
+            waitingGamePanel.enableStartButton(); // 버튼 항시 활성화 유지
         });
     }
 

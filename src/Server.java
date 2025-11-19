@@ -4,6 +4,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -19,6 +20,8 @@ import javax.swing.SwingUtilities;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import javax.swing.JOptionPane;
+// ServerGUI 클래스는 같은 패키지에 있다고 가정하고 별도 import는 하지 않습니다.
+
 
 public class Server {
 
@@ -50,6 +53,7 @@ public class Server {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
+            // [수정] 외부 ServerGUI 클래스 활용
             ServerGUI serverGUI = new ServerGUI();
 
             // GUI의 시작 버튼에 리스너 연결
@@ -62,6 +66,7 @@ public class Server {
                         serverGUI.getStartButton().setEnabled(false); // 서버 시작 후 버튼 비활성화
                         serverGUI.setTitle("Mafia Game Server (Running on Port " + port + ")");
                     } catch (IOException ex) {
+                        // System.err를 사용하며, 이는 ServerGUI의 redirectSystemOut()에 의해 GUI로 출력됩니다.
                         System.err.println("서버 시작 실패: " + ex.getMessage());
                         serverGUI.getStartButton().setEnabled(true);
                         JOptionPane.showMessageDialog(serverGUI, "서버 시작 실패: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
@@ -101,12 +106,12 @@ public class Server {
 
 
     //게임 시작 함수
-    public static synchronized void startGame() {
+    public static synchronized void startGame(ClientHandler starter) { // [수정] starter 인자 추가
         if (currentPhase != GamePhase.WAITING) return;
 
         // 플레이어 수 제한
         if (clientHandlers.size() < 4) {
-            broadcast("SYSTEM:게임 시작을 위해 4명 이상의 플레이어가 필요합니다.");
+            starter.sendMessage("SYSTEM:게임 시작을 위해 4명 이상의 플레이어가 필요합니다."); // [수정] starter에게만 메시지 전송
             return;
         }
 
@@ -431,7 +436,11 @@ public class Server {
     private static void broadcastPlayerList() {
         StringBuilder sb = new StringBuilder();
         synchronized (clientHandlers) {
-            for (ClientHandler h : clientHandlers) {
+            // [수정] playerNumber 기준으로 정렬 로직 추가
+            List<ClientHandler> sortedHandlers = new ArrayList<>(clientHandlers);
+            Collections.sort(sortedHandlers, Comparator.comparingInt(h -> h.playerNumber));
+
+            for (ClientHandler h : sortedHandlers) { // [수정] 정렬된 리스트 사용
                 if (sb.length() > 0) sb.append(",");
                 String statusText = (h.status == PlayerStatus.ALIVE) ? "생존" : "사망";
                 String roleText = (currentPhase == GamePhase.WAITING) ? "" : " [" + h.role.toString().charAt(0) + "]"; // 대기 중에는 역할 숨김
@@ -554,12 +563,12 @@ public class Server {
 
                     if (message.trim().equalsIgnoreCase("/start")) {
                         System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
-                        startGame();
+                        startGame(this); // [수정] startGame(this) 호출
                     }
                     else if(message.trim().startsWith("/skill "))
                     {
                         if (currentPhase != GamePhase.NIGHT) {
-                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 있습니다.");
+                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 없습니다.");
                             continue;
                         }
                         switch (role){

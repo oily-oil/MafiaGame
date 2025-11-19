@@ -61,6 +61,10 @@ public class WaitingGamePanel extends JPanel {
         updatePlayerList(java.util.Arrays.asList(arr));
     }
 
+    public void appendChatMessage(String message) {
+        roomListArea.append(message + "\n");
+    }
+
     public void enableStartButton() {
         startGameButton.setEnabled(true);
     }
@@ -70,7 +74,6 @@ public class WaitingGamePanel extends JPanel {
     }
 
     public void clearPlayerList() {
-        roomListArea.setText("서버에 연결하세요...");
-        disableStartButton();
+        roomListArea.setText("참가자 목록을 갱신 중입니다...");
     }
 }

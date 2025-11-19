@@ -135,6 +135,21 @@ public class GamePanel extends JPanel {
         playerButtonPanel.repaint();
     }
 
+    public void clearGameState() {
+        // 1. 채팅 영역 비우기
+        chatArea.setText("게임 시작을 기다립니다...");
+
+        // 2. 타이머 초기 텍스트로 되돌리기
+        updateTimer("WAITING", 0);
+
+        // 3. 선택된 플레이어 및 버튼 강조 초기화
+        selectedPlayer = null;
+        for (JButton btn : playerButtons) {
+            btn.setBackground(null);
+            btn.setForeground(Color.BLACK);
+        }
+    }
+
     /** ▶ 선택된 버튼 강조 */
     private void highlightSelectedButton(JButton selected) {
         for (JButton btn : playerButtons) {
