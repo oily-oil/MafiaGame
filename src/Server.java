@@ -498,8 +498,8 @@ public class Server {
                 handler.status = PlayerStatus.ALIVE;
                 handler.sendMessage("GAME_OVER");
             }
-        }
         broadcastPlayerList(); // 게임 종료 후 목록 업데이트 (상태 리셋)
+        }
     }
 
     //client마다 Thread실행
@@ -568,7 +568,7 @@ public class Server {
                     else if(message.trim().startsWith("/skill "))
                     {
                         if (currentPhase != GamePhase.NIGHT) {
-                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 없습니다.");
+                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 있습니다.");
                             continue;
                         }
                         switch (role){
