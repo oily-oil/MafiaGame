@@ -48,19 +48,6 @@ public class WaitingGamePanel extends JPanel {
         roomListArea.setText(sb.toString());
     }
 
-    /**
-     * 기존 문자열 포맷("a,b,c")이 왔을 때를 위한 호환 메서드
-     */
-    public void updateRoomList(String playerListCsv) {
-        if (playerListCsv == null || playerListCsv.trim().isEmpty()) {
-            roomListArea.setText("참가자가 없습니다.");
-            disableStartButton();
-            return;
-        }
-        String[] arr = playerListCsv.split(",");
-        updatePlayerList(java.util.Arrays.asList(arr));
-    }
-
     public void appendChatMessage(String message) {
         roomListArea.append(message + "\n");
     }
