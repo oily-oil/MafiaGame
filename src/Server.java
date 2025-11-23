@@ -230,8 +230,6 @@ public class Server {
                     votes.clear();
                     broadcastPlayerList(); // 사망자 발생 시 목록 업데이트
                 }
-
-                // 🌟 단계 전환 후, 다음 단계의 타이머를 재시작
                 scheduleDayNightTimer();
             }
         }, PHASE_TIME_SECONDS, TimeUnit.SECONDS); // 60초 후에 실행
@@ -287,7 +285,7 @@ public class Server {
         }
     }
 
-    // 투표 (기존과 동일)
+    // 투표
     public static synchronized void handleVote(ClientHandler voter, String command) {
         try {
             int targetNumber = Integer.parseInt(command.substring(6).trim());
@@ -324,7 +322,7 @@ public class Server {
 
             if (target == null) {
                 mafia.sendMessage("SYSTEM:존재하지 않는 플레이어 번호입니다.");
-            } else if (target.status == PlayerStatus.DEAD) {
+            } else if (PlayerStatus.DEAD == target.status) {
                 mafia.sendMessage("SYSTEM:이미 죽은 플레이어입니다.");
             } else if (target.role == Role.MAFIA) {
                 mafia.sendMessage("SYSTEM:동료 마피아를 죽일 수 없습니다.");
@@ -405,11 +403,22 @@ public class Server {
         return null;
     }
 
-    // 마피아끼리 대화 (기존과 동일)
+    // 마피아끼리 대화
     private static void broadcastToMafia(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
                 if (handler.role == Role.MAFIA && handler.status == PlayerStatus.ALIVE) {
+                    handler.sendMessage(message);
+                }
+            }
+        }
+    }
+
+    // 사망자끼리 대화
+    private static void broadcastToDead(String message) {
+        synchronized (clientHandlers) {
+            for (ClientHandler handler : clientHandlers) {
+                if (handler.status == PlayerStatus.DEAD) {
                     handler.sendMessage(message);
                 }
             }
@@ -421,7 +430,6 @@ public class Server {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
                 if (currentPhase == GamePhase.DAY || currentPhase == GamePhase.NIGHT) {
-                    // 🌟 수정: TIMER 메시지는 항상 모두에게 전송
                     if (message.startsWith("TIMER:") || handler.status == PlayerStatus.ALIVE || message.startsWith("SYSTEM:지난 밤")) {
                         handler.sendMessage(message);
                     }
@@ -552,11 +560,11 @@ public class Server {
                 while (in.hasNextLine()) {
                     String message = in.nextLine();
 
-                    if (message.startsWith("TIMER:")) { // 🌟 클라이언트에서 타이머 정보는 무시
+                    if (message.startsWith("TIMER:")) {
                         continue;
                     }
 
-                    if (status == PlayerStatus.DEAD && !message.trim().equalsIgnoreCase("/start")) {
+                    if (status == PlayerStatus.DEAD && !message.startsWith("MSG:")) {
                         sendMessage("SYSTEM:당신은 죽었습니다. 아무것도 할 수 없습니다.");
                         continue;
                     }
@@ -595,10 +603,22 @@ public class Server {
                     else if (message.startsWith("MSG:")) {
                         synchronized (Server.class) {
                             if (currentPhase == GamePhase.DAY) {
-                                System.out.println("[낮] P" + playerNumber + ": " + message.substring(4));
-                                broadcast("P" + playerNumber + ": " + message.substring(4));
+                                String chatContent = message.substring(4);
+                                String playerPrefix = "P" + playerNumber + ": ";
+
+                                if (status == PlayerStatus.ALIVE) {
+                                    System.out.println("[낮] " + playerPrefix + chatContent);
+                                    broadcast(playerPrefix + chatContent);
+                                } else {
+                                    System.out.println("[사망자] " + playerPrefix + chatContent);
+                                    broadcastToDead("[사망자] " + playerPrefix + chatContent);
+                                }
                             }
                             else if (currentPhase == GamePhase.NIGHT) {
+                                if(status == PlayerStatus.DEAD){
+                                    System.out.println("[사망자] P" + playerNumber + ": " + message.substring(4));
+                                    broadcastToDead("[사망자] P" + playerNumber + ": " + message.substring(4));
+                                }
                                 if (role == Role.MAFIA) {
                                     System.out.println("[밤-마피아] P" + playerNumber + ": " + message.substring(4));
                                     broadcastToMafia("[마피아채팅] P" + playerNumber + ": " + message.substring(4));
