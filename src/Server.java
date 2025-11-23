@@ -611,13 +611,13 @@ public class Server {
                                     broadcast(playerPrefix + chatContent);
                                 } else {
                                     System.out.println("[사망자] " + playerPrefix + chatContent);
-                                    broadcastToDead("[사망자] " + playerPrefix + chatContent);
+                                    broadcastToDead("[사망자채팅] " + playerPrefix + chatContent);
                                 }
                             }
                             else if (currentPhase == GamePhase.NIGHT) {
                                 if(status == PlayerStatus.DEAD){
                                     System.out.println("[사망자] P" + playerNumber + ": " + message.substring(4));
-                                    broadcastToDead("[사망자] P" + playerNumber + ": " + message.substring(4));
+                                    broadcastToDead("[사망자채팅] P" + playerNumber + ": " + message.substring(4));
                                 }
                                 if (role == Role.MAFIA) {
                                     System.out.println("[밤-마피아] P" + playerNumber + ": " + message.substring(4));
