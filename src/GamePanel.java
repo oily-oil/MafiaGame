@@ -47,6 +47,7 @@ public class GamePanel extends JPanel {
         chatArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(chatArea);
         add(scrollPane, BorderLayout.CENTER);
+
         // 하단 영역 전체 패널
         JPanel bottomPanel = new JPanel(new BorderLayout());
         add(bottomPanel, BorderLayout.SOUTH);
@@ -75,30 +76,56 @@ public class GamePanel extends JPanel {
         voteButton = new JButton("투표");
         skillButton = new JButton("능력");
 
+        // 🌟 [추가] 초기 가시성 설정: 대기 중에는 버튼을 숨깁니다.
+        voteButton.setVisible(false);
+        skillButton.setVisible(false);
+
         actionPanel.add(voteButton);
         actionPanel.add(skillButton);
 
         bottomPanel.add(actionPanel, BorderLayout.SOUTH);
 
-        // 투표 버튼 동작
+        // 🌟 [수정] 투표 버튼 동작: /vote [선택된 플레이어 번호] 전송
         voteButton.addActionListener(e -> {
             if (selectedPlayer != null) {
-                client.sendMessage("/vote " + selectedPlayer);
-                appendChatMessage("[투표] " + selectedPlayer + " 에게 투표했습니다.");
+                // selectedPlayer에는 "P1 - 이름" 전체 문자열이 들어 있으므로,
+                // 플레이어 번호(P1에서 1)만 추출해야 합니다.
+                String playerNumber = extractPlayerNumber(selectedPlayer);
+                client.sendMessage("/vote " + playerNumber);
+                appendChatMessage("[투표] P" + playerNumber + " 에게 투표했습니다.");
             } else {
-                JOptionPane.showMessageDialog(this, "플레이어를 먼저 선택하세요.");
+                JOptionPane.showMessageDialog(this, "투표 대상을 먼저 선택하세요.");
             }
         });
 
-        // 능력 사용 버튼 동작
+        // 🌟 [수정] 능력 사용 버튼 동작: /skill, /kill, /save, /investigate 전송
         skillButton.addActionListener(e -> {
             if (selectedPlayer != null) {
-                client.sendMessage("/skill " + selectedPlayer);
-                appendChatMessage("[능력 사용] 대상: " + selectedPlayer);
+                String playerNumber = extractPlayerNumber(selectedPlayer);
+                String command = "/skill " + playerNumber;
+
+                client.sendMessage(command);
             } else {
-                JOptionPane.showMessageDialog(this, "플레이어를 먼저 선택하세요.");
+                JOptionPane.showMessageDialog(this, "능력 대상을 먼저 선택하세요.");
             }
         });
+    }
+
+    /** 🌟 [추가] 플레이어 문자열에서 번호 추출 (예: "P1 - 이름..." -> "1") */
+    private String extractPlayerNumber(String playerString) {
+        try {
+            // P[번호] - ... 형태에서 번호만 추출합니다.
+            if (playerString.startsWith("P")) {
+                int dashIndex = playerString.indexOf(" -");
+                if (dashIndex != -1) {
+                    // P1에서 1만 추출
+                    return playerString.substring(1, dashIndex);
+                }
+            }
+            return "";
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /** 채팅 메시지 추가 */
@@ -123,7 +150,8 @@ public class GamePanel extends JPanel {
             btn.setFocusable(false);
 
             btn.addActionListener(e -> {
-                selectedPlayer = p.substring(1,2);
+                // 🌟 [수정] 선택된 플레이어 변수에 버튼 텍스트 전체를 저장
+                selectedPlayer = btn.getText();
                 highlightSelectedButton(btn);
             });
 
@@ -159,22 +187,36 @@ public class GamePanel extends JPanel {
 
         selected.setBackground(Color.BLACK);
         selected.setForeground(Color.WHITE);
-    }/** 서버에서 받은 타이머 정보로 레이블 업데이트 */
+    }
 
+    /** 🌟 [수정] 서버에서 받은 타이머 정보로 레이블 및 버튼 가시성 업데이트 */
     public void updateTimer(String phase, int secondsLeft) {
         String phaseText = "";
+
+        // 🌟 [핵심 로직] 단계에 따른 버튼 가시성 제어
+        boolean isAbilityUser = client.hasAbility(); // ⚠️ Client에 hasAbility 메서드가 필요
+
         switch (phase) {
             case "WAITING":
                 phaseText = "대기 중";
+                voteButton.setVisible(false);
+                skillButton.setVisible(false);
                 break;
             case "DAY":
                 phaseText = "낮 (토론/투표)";
+                voteButton.setVisible(true);  // 낮에는 투표 버튼 표시
+                skillButton.setVisible(false); // 밤 능력 버튼 숨김
                 break;
             case "NIGHT":
                 phaseText = "밤 (능력 사용)";
+                voteButton.setVisible(false); // 밤에는 투표 버튼 숨김
+                // 밤에는 능력자인 경우에만 능력 버튼 표시
+                skillButton.setVisible(isAbilityUser);
                 break;
             default:
                 phaseText = "정보 없음";
+                voteButton.setVisible(false);
+                skillButton.setVisible(false);
         }
 
         // 초를 분:초 형식으로 변환
@@ -185,6 +227,7 @@ public class GamePanel extends JPanel {
         String finalPhaseText = phaseText;
         SwingUtilities.invokeLater(() -> {
             timerLabel.setText("현재 단계: " + finalPhaseText + " (" + timeString + ")");
+
             // 단계별 색상 변경 (옵션)
             if (phase.equals("DAY")) {
                 timerLabel.setForeground(Color.RED);

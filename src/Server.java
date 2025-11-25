@@ -20,12 +20,13 @@ import javax.swing.SwingUtilities;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import javax.swing.JOptionPane;
-// ServerGUI 클래스는 같은 패키지에 있다고 가정하고 별도 import는 하지 않습니다.
 
 
 public class Server {
 
     private static Set<ClientHandler> clientHandlers = new HashSet<>();
+    // 🌟 [추가] 방장 정보를 관리하기 위한 변수
+    private static volatile ClientHandler currentHost = null;
 
     private enum GamePhase { WAITING, DAY, NIGHT }
     private static GamePhase currentPhase = GamePhase.WAITING;
@@ -105,15 +106,89 @@ public class Server {
     }
 
 
+    // 🌟 [추가] 방장 위임 함수
+    private static synchronized void assignNewHost() {
+        // 기존 방장 해제
+        if (currentHost != null) {
+            currentHost.isHost = false;
+            currentHost = null;
+        }
+
+        // 남아있는 클라이언트 중 playerNumber가 가장 낮은 클라이언트를 방장으로 지정
+        ClientHandler newHost = null;
+        synchronized (clientHandlers) {
+            if (clientHandlers.isEmpty()) {
+                return; // 클라이언트가 아무도 없으면 종료
+            }
+
+            // playerNumber가 가장 낮은 클라이언트 찾기 (가장 먼저 들어온 클라이언트)
+            newHost = clientHandlers.stream()
+                    .min(Comparator.comparingInt(h -> h.playerNumber))
+                    .orElse(null);
+        }
+
+        if (newHost != null) {
+            newHost.isHost = true;
+            currentHost = newHost;
+            newHost.sendMessage("SYSTEM:HOST_GRANTED"); // 새 방장에게 권한 부여 알림
+            newHost.isReady = true; // 방장은 항상 준비 상태로 간주
+            broadcast("SYSTEM:" + newHost.name + "(P" + newHost.playerNumber + ") 님이 새로운 방장이 되었습니다.");
+            broadcastPlayerList(); // 방장 정보 업데이트를 위해 목록 전송
+        }
+    }
+
+
+    // 🌟 [추가] 준비 상태를 처리하는 함수
+    public static synchronized void handleReady(ClientHandler readyClient) {
+        if (currentPhase != GamePhase.WAITING) {
+            readyClient.sendMessage("SYSTEM:게임이 시작된 후에는 준비/취소할 수 없습니다.");
+            return;
+        }
+        if (readyClient.isHost) {
+            readyClient.sendMessage("SYSTEM:방장은 준비 상태를 변경할 수 없습니다. (항상 준비 상태)");
+            return;
+        }
+
+        readyClient.isReady = !readyClient.isReady;
+        String status = readyClient.isReady ? "준비 완료" : "준비 취소";
+        readyClient.sendMessage("SYSTEM:" + status + "되었습니다.");
+        broadcast("SYSTEM:" + readyClient.name + "(P" + readyClient.playerNumber + ") 님이 " + status + "했습니다.");
+
+        // 🌟 이 부분이 모든 클라이언트의 목록 및 상태를 갱신합니다.
+        broadcastPlayerList(); // 준비 상태 업데이트를 위해 목록 전송 (⭐ 이 부분이 핵심)
+    }
+
+
     //게임 시작 함수
     public static synchronized void startGame(ClientHandler starter) { // [수정] starter 인자 추가
         if (currentPhase != GamePhase.WAITING) return;
+
+        // 🌟 [추가] 방장 권한 확인
+        if (!starter.isHost) {
+            starter.sendMessage("SYSTEM:게임 시작은 방장만 할 수 있습니다.");
+            return;
+        }
 
         // 플레이어 수 제한
         if (clientHandlers.size() < 4) {
             starter.sendMessage("SYSTEM:게임 시작을 위해 4명 이상의 플레이어가 필요합니다."); // [수정] starter에게만 메시지 전송
             return;
         }
+
+        // 🌟 [추가] 모든 일반 클라이언트의 준비 상태 확인
+        boolean allReady = true;
+        for (ClientHandler handler : clientHandlers) {
+            if (!handler.isHost && !handler.isReady) {
+                allReady = false;
+                break;
+            }
+        }
+
+        if (!allReady) {
+            starter.sendMessage("SYSTEM:모든 플레이어가 준비 상태여야 게임을 시작할 수 있습니다.");
+            return;
+        }
+
 
         // 초기화
         nightKillTarget = null;
@@ -440,7 +515,7 @@ public class Server {
         }
     }
 
-    // 플레이어 목록을 클라이언트에게 전송하는 메서드 (기존과 동일)
+    // 플레이어 목록을 클라이언트에게 전송하는 메서드
     private static void broadcastPlayerList() {
         StringBuilder sb = new StringBuilder();
         synchronized (clientHandlers) {
@@ -452,7 +527,20 @@ public class Server {
                 if (sb.length() > 0) sb.append(",");
                 String statusText = (h.status == PlayerStatus.ALIVE) ? "생존" : "사망";
                 String roleText = (currentPhase == GamePhase.WAITING) ? "" : " [" + h.role.toString().charAt(0) + "]"; // 대기 중에는 역할 숨김
-                sb.append("P").append(h.playerNumber).append(" - ").append(h.name).append(" (").append(statusText).append(")").append(roleText);
+
+                // 🌟 [수정/추가] 방장/준비 상태 정보 추가
+                String hostReadyStatus = "";
+                if (currentPhase == GamePhase.WAITING) {
+                    if (h.isHost) {
+                        hostReadyStatus = " (방장)";
+                    } else if (h.isReady) {
+                        hostReadyStatus = " (준비)";
+                    } else {
+                        hostReadyStatus = " (대기)";
+                    }
+                }
+
+                sb.append("P").append(h.playerNumber).append(" - ").append(h.name).append(" (").append(statusText).append(")").append(roleText).append(hostReadyStatus);
             }
         }
         broadcast("PLAYERS_LIST:" + sb.toString());
@@ -504,9 +592,10 @@ public class Server {
             for (ClientHandler handler : clientHandlers) {
                 handler.role = Role.NONE;
                 handler.status = PlayerStatus.ALIVE;
+                handler.isReady = handler.isHost; // 방장은 항상 준비 상태로 유지
                 handler.sendMessage("GAME_OVER");
             }
-        broadcastPlayerList(); // 게임 종료 후 목록 업데이트 (상태 리셋)
+            broadcastPlayerList(); // 게임 종료 후 목록 업데이트 (상태 리셋)
         }
     }
 
@@ -520,6 +609,9 @@ public class Server {
         public String name;
         public Role role = Role.NONE;
         public PlayerStatus status = PlayerStatus.ALIVE;
+        // 🌟 [추가] 방장 및 준비 상태
+        public boolean isHost = false;
+        public boolean isReady = false;
 
         public ClientHandler(Socket socket) {
             this.socket = socket;
@@ -540,6 +632,17 @@ public class Server {
 
                 synchronized (clientHandlers) {
                     clientHandlers.add(this);
+
+                    // 🌟 [추가] 방장 권한 부여 로직
+                    if (currentHost == null) {
+                        this.isHost = true;
+                        this.isReady = true; // 방장은 항상 준비 상태
+                        currentHost = this;
+                        sendMessage("SYSTEM:HOST_GRANTED");
+                        broadcast("SYSTEM:P" + this.playerNumber + "(" + this.name + ") 님이 방장 권한을 획득했습니다.");
+                    } else {
+                        sendMessage("SYSTEM:GUEST_GRANTED");
+                    }
                 }
 
                 sendMessage("PLAYER_NUM:" + this.playerNumber);
@@ -572,6 +675,11 @@ public class Server {
                     if (message.trim().equalsIgnoreCase("/start")) {
                         System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
                         startGame(this); // [수정] startGame(this) 호출
+                    }
+                    // 🌟 [추가] /ready 명령어 처리
+                    else if (message.trim().equalsIgnoreCase("/ready")) {
+                        System.out.println("P" + playerNumber + "로부터 /ready 명령 수신");
+                        handleReady(this);
                     }
                     else if(message.trim().startsWith("/skill "))
                     {
@@ -640,6 +748,14 @@ public class Server {
                 if (out != null) {
                     synchronized (clientHandlers) {
                         clientHandlers.remove(this);
+
+                        // 🌟 [추가] 방장 위임 로직 (퇴장한 클라이언트가 방장이었으면)
+                        if (this.isHost && clientHandlers.size() > 0) {
+                            assignNewHost();
+                        } else if (this.isHost) {
+                            currentHost = null; // 남아있는 클라이언트가 없으면 방장 없음
+                        }
+
                         GamePhase oldPhase = currentPhase;
                         currentPhase = GamePhase.WAITING;
                         broadcast("SYSTEM:" + name + "(P" + playerNumber + ") 님이 퇴장했습니다.");

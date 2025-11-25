@@ -1,11 +1,15 @@
 import javax.swing.*;
 import java.awt.*;
+import java.util.Arrays;
 import java.util.List;
 
 public class WaitingGamePanel extends JPanel {
 
-    private JTextArea roomListArea;
+    private JTextArea displayArea;
+
     private JButton startGameButton;
+    private JButton readyButton;
+
     private final Client client;
 
     public WaitingGamePanel(Client client) {
@@ -15,52 +19,82 @@ public class WaitingGamePanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        topPanel.add(new JLabel("참가자 목록:"));
+        topPanel.add(new JLabel("로비 상태 및 채팅:"));
         add(topPanel, BorderLayout.NORTH);
 
-        roomListArea = new JTextArea("서버에 연결하세요...");
-        roomListArea.setEditable(false);
-        JScrollPane scrollPane = new JScrollPane(roomListArea);
+        // 🌟 [수정] JTextArea 이름 변경 및 초기 설정
+        displayArea = new JTextArea("서버에 연결하세요...");
+        displayArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(displayArea);
         add(scrollPane, BorderLayout.CENTER);
 
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-        startGameButton = new JButton("게임 시작 (/start)");
-        startGameButton.setEnabled(false);
-        startGameButton.addActionListener(e -> client.sendMessage("/start"));
+
+        // 1. 게임 시작 버튼 (방장 전용)
+        startGameButton = new JButton("게임 시작 (4명 이상)");
+        startGameButton.setVisible(false); // 초기에는 숨김
+        // 🌟 [수정] 클라이언트의 handleStartClick() 호출
+        startGameButton.addActionListener(e -> client.handleStartClick());
         bottomPanel.add(startGameButton);
+
+        // 2. 준비/취소 버튼 (일반 참여자 전용)
+        readyButton = new JButton("준비");
+        readyButton.setVisible(false); // 초기에는 숨김
+        // 🌟 [추가] 클라이언트의 handleReadyClick() 호출
+        readyButton.addActionListener(e -> client.handleReadyClick());
+        bottomPanel.add(readyButton);
+
         add(bottomPanel, BorderLayout.SOUTH);
     }
 
-    /**
-     * 서버로부터 받은 플레이어 목록(리스트 형태)을 사용해 표시한다.
-     */
-    public void updatePlayerList(java.util.List<String> players) {
+    public void updatePlayerList(List<String> players) {
+
         if (players == null || players.isEmpty()) {
-            roomListArea.setText("참가자가 없습니다.");
-            disableStartButton();
+            displayArea.append("\n--- 참가자 (0명) ---\n참가자가 없습니다.\n");
             return;
         }
+
         StringBuilder sb = new StringBuilder();
-        sb.append("--- 참가자 (").append(players.size()).append("명) ---\n");
+        sb.append("\n--- 참가자 (").append(players.size()).append("명) ---\n");
         for (String p : players) {
             sb.append(p).append("\n");
         }
-        roomListArea.setText(sb.toString());
+
+        displayArea.append(sb.toString());
+        displayArea.setCaretPosition(displayArea.getDocument().getLength()); // 스크롤 하단
     }
 
     public void appendChatMessage(String message) {
-        roomListArea.append(message + "\n");
+        displayArea.append(message + "\n");
+        displayArea.setCaretPosition(displayArea.getDocument().getLength());
     }
 
-    public void enableStartButton() {
-        startGameButton.setEnabled(true);
+    public void updateButtons(boolean isHost, boolean isReady) {
+        startGameButton.setVisible(isHost);
+        readyButton.setVisible(!isHost);
+
+        if (isHost) {
+            startGameButton.setText("게임 시작 (4명 이상)");
+            startGameButton.setEnabled(true);
+            readyButton.setText("준비 완료 (방장)");
+            readyButton.setEnabled(false);
+        } else {
+            readyButton.setText(isReady ? "준비 취소" : "준비");
+            readyButton.setEnabled(true);
+            startGameButton.setEnabled(false);
+        }
+
+        revalidate();
+        repaint();
     }
 
-    public void disableStartButton() {
-        startGameButton.setEnabled(false);
-    }
-
+    /**
+     * 🌟 [수정] 목록 리셋 시 사용. 채팅 영역도 초기화.
+     */
     public void clearPlayerList() {
-        roomListArea.setText("참가자 목록을 갱신 중입니다...");
+        displayArea.setText("참가자 목록을 갱신 중입니다...\n");
     }
+
+    // 🌟 [삭제] 기존의 enableStartButton(), disableStartButton() 함수는
+    // updateButtons() 함수로 대체되어 삭제합니다.
 }
