@@ -24,7 +24,7 @@ public class GamePanel extends JPanel {
 
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        setPreferredSize(new Dimension(500, 600));
+        setPreferredSize(new Dimension(400, 600));
 
         // 🌟 수정: 상단 타이틀과 타이머를 포함할 패널
         JPanel headerPanel = new JPanel(new BorderLayout());
@@ -193,8 +193,21 @@ public class GamePanel extends JPanel {
     public void updateTimer(String phase, int secondsLeft) {
         String phaseText = "";
 
-        // 🌟 [핵심 로직] 단계에 따른 버튼 가시성 제어
-        boolean isAbilityUser = client.hasAbility(); // ⚠️ Client에 hasAbility 메서드가 필요
+        // 🌟 [핵심 로직] 단계에 따른 버튼 가시성 제어 및 생존 여부 확인
+        boolean isAbilityUser = client.hasAbility();
+        boolean isClientAlive = client.isAlive(); // 🌟 [추가] 생존 여부 확인 (Client.isAlive() 메서드 필요)
+
+
+        // 🌟 [추가] 사망자는 능력/투표 버튼 삭제 (안 보이게)
+        if (!isClientAlive) {
+            voteButton.setVisible(false); // [수정] 투표 버튼 숨김
+            skillButton.setVisible(false); // [수정] 능력 버튼 숨김
+            inputField.setEnabled(true); // 🌟 사망자 채팅 입력 가능하도록 활성화 유지
+            return; // 사망자는 단계별 버튼 로직을 건너뜁니다.
+        }
+
+        // 🌟 [생존자 전용] 단계별 버튼 가시성 로직
+        inputField.setEnabled(true); // [수정] 생존자는 항상 채팅 입력 가능
 
         switch (phase) {
             case "WAITING":
@@ -218,6 +231,11 @@ public class GamePanel extends JPanel {
                 voteButton.setVisible(false);
                 skillButton.setVisible(false);
         }
+
+        // 🌟 [추가] 생존자는 버튼 활성화 유지
+        voteButton.setEnabled(true);
+        skillButton.setEnabled(true);
+
 
         // 초를 분:초 형식으로 변환
         int minutes = secondsLeft / 60;

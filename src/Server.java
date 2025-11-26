@@ -433,6 +433,9 @@ public class Server {
             } else {
                 if (target.role == Role.MAFIA) {
                     police.sendMessage("SYSTEM:[조사결과] P" + target.playerNumber + " 님은 [마피아] 입니다.");
+                } else if (target.role == Role.POLICE) {
+                    police.sendMessage("SYSTEM:본인은 조사할 수 없습니다.");
+                    return;
                 } else {
                     police.sendMessage("SYSTEM:[조사결과] P" + target.playerNumber + " 님은 [시민] 입니다.");
                 }

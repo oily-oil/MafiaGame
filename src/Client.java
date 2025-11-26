@@ -255,8 +255,8 @@ public class Client {
         return "MAFIA".equals(myRole) || "POLICE".equals(myRole) || "DOCTOR".equals(myRole);
     }
 
-    public String getRoleCommand() {
-        return "/skill ";
+    public boolean isAlive() {
+        return isAlive;
     }
 
     public static void main(String[] args) {
