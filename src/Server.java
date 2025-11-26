@@ -2,19 +2,13 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
-import java.util.Set;
+import java.util.*;
+import java.io.BufferedReader; // [수정] BufferedReader 추가
+import java.io.InputStreamReader; // [수정] InputStreamReader 추가
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService; // 추가
-import java.util.concurrent.TimeUnit; // 추가
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import java.awt.event.ActionEvent;
@@ -25,49 +19,42 @@ import javax.swing.JOptionPane;
 public class Server {
 
     private static Set<ClientHandler> clientHandlers = new HashSet<>();
-    // 🌟 [추가] 방장 정보를 관리하기 위한 변수
     private static volatile ClientHandler currentHost = null;
 
     private enum GamePhase { WAITING, DAY, NIGHT }
     private static GamePhase currentPhase = GamePhase.WAITING;
 
-    // 🌟 수정/추가: ScheduledExecutorService를 사용하여 스케줄링
     private static ScheduledExecutorService phaseScheduler = Executors.newSingleThreadScheduledExecutor();
     private static ScheduledExecutorService timerUpdater = Executors.newSingleThreadScheduledExecutor();
 
-    private static final long PHASE_TIME_SECONDS = 60; // 단계당 시간 (60초)
-    private static volatile long currentPhaseTimeLeft = 0; // 현재 단계의 남은 시간 (volatile)
+    private static final long PHASE_TIME_SECONDS = 60;
+    private static volatile long currentPhaseTimeLeft = 0;
 
     private static AtomicInteger playerCounter = new AtomicInteger(1);
 
     private static Map<ClientHandler, ClientHandler> votes = new HashMap<>();
 
-    // 밤 능력 대상자들
     private static ClientHandler nightKillTarget = null;
     private static ClientHandler nightSaveTarget = null;
     private static ClientHandler nightInvestigateUser = null;
 
-    // 역할 및 상태 Enum 정의
     private enum Role { NONE, MAFIA, CITIZEN, POLICE, DOCTOR }
     private enum PlayerStatus { ALIVE, DEAD }
 
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            // [수정] 외부 ServerGUI 클래스 활용
             ServerGUI serverGUI = new ServerGUI();
 
-            // GUI의 시작 버튼에 리스너 연결
             serverGUI.getStartButton().addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     try {
                         int port = serverGUI.getPortNumber();
                         startServerLogic(port);
-                        serverGUI.getStartButton().setEnabled(false); // 서버 시작 후 버튼 비활성화
+                        serverGUI.getStartButton().setEnabled(false);
                         serverGUI.setTitle("Mafia Game Server (Running on Port " + port + ")");
                     } catch (IOException ex) {
-                        // System.err를 사용하며, 이는 ServerGUI의 redirectSystemOut()에 의해 GUI로 출력됩니다.
                         System.err.println("서버 시작 실패: " + ex.getMessage());
                         serverGUI.getStartButton().setEnabled(true);
                         JOptionPane.showMessageDialog(serverGUI, "서버 시작 실패: " + ex.getMessage(), "오류", JOptionPane.ERROR_MESSAGE);
@@ -81,7 +68,6 @@ public class Server {
         System.out.println("게임 서버가 시작되었습니다. (Port: " + port + ")");
         ExecutorService pool = Executors.newFixedThreadPool(10);
 
-        // 새로운 스레드에서 서버 리스너를 실행하여 GUI 스레드가 블록되지 않도록 함
         new Thread(() -> {
             try (ServerSocket listener = new ServerSocket(port)) {
                 while (true) {
@@ -92,36 +78,27 @@ public class Server {
             }
         }).start();
 
-        // 🌟 추가: 1초마다 클라이언트에게 타이머 정보 전송
         timerUpdater.scheduleAtFixedRate(() -> {
-            // 남은 시간을 1초 감소시킵니다. (WAITING 상태가 아닐 때만)
             if (currentPhase != GamePhase.WAITING && currentPhaseTimeLeft > 0) {
                 currentPhaseTimeLeft--;
             }
-
-            // 모든 플레이어에게 현재 상태와 남은 시간을 전송합니다.
-            // 형식: TIMER:PHASE:SECONDS_LEFT
             broadcast("TIMER:" + currentPhase.name() + ":" + currentPhaseTimeLeft);
         }, 0, 1, TimeUnit.SECONDS);
     }
 
 
-    // 🌟 [추가] 방장 위임 함수
     private static synchronized void assignNewHost() {
-        // 기존 방장 해제
         if (currentHost != null) {
             currentHost.isHost = false;
             currentHost = null;
         }
 
-        // 남아있는 클라이언트 중 playerNumber가 가장 낮은 클라이언트를 방장으로 지정
         ClientHandler newHost = null;
         synchronized (clientHandlers) {
             if (clientHandlers.isEmpty()) {
-                return; // 클라이언트가 아무도 없으면 종료
+                return;
             }
 
-            // playerNumber가 가장 낮은 클라이언트 찾기 (가장 먼저 들어온 클라이언트)
             newHost = clientHandlers.stream()
                     .min(Comparator.comparingInt(h -> h.playerNumber))
                     .orElse(null);
@@ -130,15 +107,13 @@ public class Server {
         if (newHost != null) {
             newHost.isHost = true;
             currentHost = newHost;
-            newHost.sendMessage("SYSTEM:HOST_GRANTED"); // 새 방장에게 권한 부여 알림
-            newHost.isReady = true; // 방장은 항상 준비 상태로 간주
+            newHost.sendMessage("SYSTEM:HOST_GRANTED");
             broadcast("SYSTEM:" + newHost.name + "(P" + newHost.playerNumber + ") 님이 새로운 방장이 되었습니다.");
-            broadcastPlayerList(); // 방장 정보 업데이트를 위해 목록 전송
+            broadcastPlayerList();
         }
     }
 
 
-    // 🌟 [추가] 준비 상태를 처리하는 함수
     public static synchronized void handleReady(ClientHandler readyClient) {
         if (currentPhase != GamePhase.WAITING) {
             readyClient.sendMessage("SYSTEM:게임이 시작된 후에는 준비/취소할 수 없습니다.");
@@ -154,28 +129,23 @@ public class Server {
         readyClient.sendMessage("SYSTEM:" + status + "되었습니다.");
         broadcast("SYSTEM:" + readyClient.name + "(P" + readyClient.playerNumber + ") 님이 " + status + "했습니다.");
 
-        // 🌟 이 부분이 모든 클라이언트의 목록 및 상태를 갱신합니다.
-        broadcastPlayerList(); // 준비 상태 업데이트를 위해 목록 전송 (⭐ 이 부분이 핵심)
+        broadcastPlayerList();
     }
 
 
-    //게임 시작 함수
-    public static synchronized void startGame(ClientHandler starter) { // [수정] starter 인자 추가
+    public static synchronized void startGame(ClientHandler starter) {
         if (currentPhase != GamePhase.WAITING) return;
 
-        // 🌟 [추가] 방장 권한 확인
         if (!starter.isHost) {
             starter.sendMessage("SYSTEM:게임 시작은 방장만 할 수 있습니다.");
             return;
         }
 
-        // 플레이어 수 제한
         if (clientHandlers.size() < 4) {
-            starter.sendMessage("SYSTEM:게임 시작을 위해 4명 이상의 플레이어가 필요합니다."); // [수정] starter에게만 메시지 전송
+            starter.sendMessage("SYSTEM:게임 시작을 위해 4명 이상의 플레이어가 필요합니다.");
             return;
         }
 
-        // 🌟 [추가] 모든 일반 클라이언트의 준비 상태 확인
         boolean allReady = true;
         for (ClientHandler handler : clientHandlers) {
             if (!handler.isHost && !handler.isReady) {
@@ -190,7 +160,6 @@ public class Server {
         }
 
 
-        // 초기화
         nightKillTarget = null;
         nightSaveTarget = null;
         nightInvestigateUser = null;
@@ -209,7 +178,6 @@ public class Server {
 
         int currentIndex = 0;
 
-        // 1. 마피아 배정
         System.out.println("--- 직업 배정 시작 ---");
         for (int i = 0; i < numMafias; i++) {
             ClientHandler handler = handlersList.get(currentIndex);
@@ -219,7 +187,6 @@ public class Server {
             currentIndex++;
         }
 
-        // 2. 경찰 배정
         if (currentIndex < numPlayers) {
             ClientHandler police = handlersList.get(currentIndex);
             police.role = Role.POLICE;
@@ -228,7 +195,6 @@ public class Server {
             currentIndex++;
         }
 
-        // 3. 의사 배정
         if (currentIndex < numPlayers) {
             ClientHandler doctor = handlersList.get(currentIndex);
             doctor.role = Role.DOCTOR;
@@ -237,7 +203,6 @@ public class Server {
             currentIndex++;
         }
 
-        // 4. 나머지 시민 배정
         while (currentIndex < numPlayers) {
             ClientHandler handler = handlersList.get(currentIndex);
             handler.role = Role.CITIZEN;
@@ -246,22 +211,18 @@ public class Server {
         }
         System.out.println("--- 직업 배정 완료 ---");
 
-        // 게임을 밤 상태로 시작
         currentPhase = GamePhase.NIGHT;
         broadcast("SYSTEM:밤이 되었습니다. 능력을 사용할 대상을 지목하세요.");
-        broadcastPlayerList(); // 역할 배정 후 목록 업데이트
+        broadcastPlayerList();
         scheduleDayNightTimer();
     }
 
     private static void scheduleDayNightTimer() {
-        // 기존 스케줄 취소
         phaseScheduler.shutdownNow();
         phaseScheduler = Executors.newSingleThreadScheduledExecutor();
 
-        // 🌟 수정: 단계가 시작될 때 남은 시간을 초기 설정값으로 리셋만 합니다.
         currentPhaseTimeLeft = PHASE_TIME_SECONDS;
 
-        // 🌟 수정: 단계 전환 로직을 phaseScheduler에 등록 (PHASE_TIME_SECONDS 후에 실행)
         phaseScheduler.schedule(() -> {
             synchronized (clientHandlers) {
                 if (currentPhase == GamePhase.WAITING) {
@@ -283,7 +244,6 @@ public class Server {
                 } else if (currentPhase == GamePhase.NIGHT) {
                     currentPhase = GamePhase.DAY;
 
-                    // 능력로직
                     if (nightKillTarget != null) {
                         if (nightKillTarget != nightSaveTarget) {
                             nightKillTarget.status = PlayerStatus.DEAD;
@@ -296,21 +256,19 @@ public class Server {
                         broadcast("SYSTEM:지난 밤, 아무 일도 일어나지 않았습니다.");
                     }
 
-                    // 밤이 지난 후 게임 종료 확인
                     if (checkGameEnd()) {
                         return;
                     }
 
                     broadcast("SYSTEM:낮이 되었습니다. 토론 및 투표를 시작하세요. (/vote 번호)");
                     votes.clear();
-                    broadcastPlayerList(); // 사망자 발생 시 목록 업데이트
+                    broadcastPlayerList();
                 }
                 scheduleDayNightTimer();
             }
-        }, PHASE_TIME_SECONDS, TimeUnit.SECONDS); // 60초 후에 실행
+        }, PHASE_TIME_SECONDS, TimeUnit.SECONDS);
     }
 
-    // 투표 로직 (기존과 동일)
     private static synchronized void tallyVotes() {
         Map<ClientHandler, Integer> voteTally = new HashMap<>();
         int livingPlayers = 0;
@@ -354,13 +312,12 @@ public class Server {
             broadcast("SYSTEM:투표 결과, " + personToExecute.name + "(P" + personToExecute.playerNumber + ") 님이 과반수(" + maxVotes + "표) 득표로 처형당했습니다.");
             personToExecute.sendMessage("YOU_DIED");
             checkGameEnd();
-            broadcastPlayerList(); // 사망자 발생 시 목록 업데이트
+            broadcastPlayerList();
         } else {
             broadcast("SYSTEM:투표가 과반수(" + majorityThreshold + "표)에 미치지 못해 (" + maxVotes + "표) 처형이 없습니다.");
         }
     }
 
-    // 투표
     public static synchronized void handleVote(ClientHandler voter, String command) {
         try {
             int targetNumber = Integer.parseInt(command.substring(6).trim());
@@ -384,7 +341,6 @@ public class Server {
         }
     }
 
-    // 마피아 능력 로직 (기존과 동일)
     public static synchronized void handleKillCommand(ClientHandler mafia, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             mafia.sendMessage("SYSTEM:낮에는 죽일 수 없습니다.");
@@ -410,7 +366,6 @@ public class Server {
         }
     }
 
-    // 경찰 능력 로직 (기존과 동일)
     public static synchronized void handleInvestigate(ClientHandler police, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             police.sendMessage("SYSTEM:낮에는 조사할 수 없습니다.");
@@ -446,7 +401,6 @@ public class Server {
         }
     }
 
-    //의사 능력 로직 (기존과 동일)
     public static synchronized void handleSave(ClientHandler doctor, String command) {
         if (currentPhase != GamePhase.NIGHT) {
             doctor.sendMessage("SYSTEM:낮에는 살릴 수 없습니다.");
@@ -481,7 +435,6 @@ public class Server {
         return null;
     }
 
-    // 마피아끼리 대화
     private static void broadcastToMafia(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -492,7 +445,6 @@ public class Server {
         }
     }
 
-    // 사망자끼리 대화
     private static void broadcastToDead(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
@@ -503,12 +455,44 @@ public class Server {
         }
     }
 
-    // 생존자, 사망자 메시지 (기존과 동일)
+    private static void broadcastToMafiaExceptSender(String message, ClientHandler sender) {
+        synchronized (clientHandlers) {
+            for (ClientHandler handler : clientHandlers) {
+                if (handler != sender && handler.role == Role.MAFIA && handler.status == PlayerStatus.ALIVE) {
+                    handler.sendMessage(message);
+                }
+            }
+        }
+    }
+
+    private static void broadcastToDeadExceptSender(String message, ClientHandler sender) {
+        synchronized (clientHandlers) {
+            for (ClientHandler handler : clientHandlers) {
+                if (handler != sender && handler.status == PlayerStatus.DEAD) {
+                    handler.sendMessage(message);
+                }
+            }
+        }
+    }
+
+    private static void broadcastExceptSenderToAlive(String message, ClientHandler sender) {
+        synchronized (clientHandlers) {
+            for (ClientHandler handler : clientHandlers) {
+                if (handler != sender && handler.status == PlayerStatus.ALIVE) {
+                    handler.sendMessage(message);
+                }
+            }
+        }
+    }
+
+
     private static void broadcast(String message) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
                 if (currentPhase == GamePhase.DAY || currentPhase == GamePhase.NIGHT) {
                     if (message.startsWith("TIMER:") || handler.status == PlayerStatus.ALIVE || message.startsWith("SYSTEM:지난 밤")) {
+                        handler.sendMessage(message);
+                    } else if (handler.status == PlayerStatus.DEAD && message.startsWith("SYSTEM:")) {
                         handler.sendMessage(message);
                     }
                 } else {
@@ -518,20 +502,17 @@ public class Server {
         }
     }
 
-    // 플레이어 목록을 클라이언트에게 전송하는 메서드
     private static void broadcastPlayerList() {
         StringBuilder sb = new StringBuilder();
         synchronized (clientHandlers) {
-            // [수정] playerNumber 기준으로 정렬 로직 추가
             List<ClientHandler> sortedHandlers = new ArrayList<>(clientHandlers);
             Collections.sort(sortedHandlers, Comparator.comparingInt(h -> h.playerNumber));
 
-            for (ClientHandler h : sortedHandlers) { // [수정] 정렬된 리스트 사용
+            for (ClientHandler h : sortedHandlers) {
                 if (sb.length() > 0) sb.append(",");
                 String statusText = (h.status == PlayerStatus.ALIVE) ? "생존" : "사망";
-                String roleText = (currentPhase == GamePhase.WAITING) ? "" : " [" + h.role.toString().charAt(0) + "]"; // 대기 중에는 역할 숨김
+                String roleText = (currentPhase == GamePhase.WAITING) ? "" : " [" + h.role.toString().charAt(0) + "]";
 
-                // 🌟 [수정/추가] 방장/준비 상태 정보 추가
                 String hostReadyStatus = "";
                 if (currentPhase == GamePhase.WAITING) {
                     if (h.isHost) {
@@ -549,7 +530,6 @@ public class Server {
         broadcast("PLAYERS_LIST:" + sb.toString());
     }
 
-    //게임 종료 시점 확인 (기존과 동일)
     private static synchronized boolean checkGameEnd() {
         int mafiaAlive = 0;
         int citizensAlive = 0;
@@ -580,46 +560,44 @@ public class Server {
             return true;
         }
 
-        return false; // 게임 계속
+        return false;
     }
 
-    // 게임 종료시
     private static synchronized void endGame() {
         System.out.println("게임 종료.");
-        phaseScheduler.shutdownNow(); // 🌟 단계 전환 스케줄러만 종료
+        phaseScheduler.shutdownNow();
 
         currentPhase = GamePhase.WAITING;
-        currentPhaseTimeLeft = 0; // 🌟 남은 시간 0으로 리셋. (timerUpdater가 WAITING 상태 전송)
+        currentPhaseTimeLeft = 0;
 
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
                 handler.role = Role.NONE;
                 handler.status = PlayerStatus.ALIVE;
-                handler.isReady = handler.isHost; // 방장은 항상 준비 상태로 유지
+                handler.isReady = handler.isHost;
                 handler.sendMessage("GAME_OVER");
             }
-            broadcastPlayerList(); // 게임 종료 후 목록 업데이트 (상태 리셋)
+            broadcastPlayerList();
         }
     }
 
-    //client마다 Thread실행
     private static class ClientHandler implements Runnable {
         private Socket socket;
         private PrintWriter out;
-        private Scanner in;
+        // [수정] Scanner 대신 BufferedReader 사용
+        private BufferedReader in;
 
         public int playerNumber;
         public String name;
         public Role role = Role.NONE;
         public PlayerStatus status = PlayerStatus.ALIVE;
-        // 🌟 [추가] 방장 및 준비 상태
         public boolean isHost = false;
         public boolean isReady = false;
 
         public ClientHandler(Socket socket) {
             this.socket = socket;
             this.playerNumber = playerCounter.getAndIncrement();
-            this.name = "플레이어 " + this.playerNumber; // 초기 이름
+            this.name = "플레이어 " + this.playerNumber;
         }
 
         public void sendMessage(String message) {
@@ -629,17 +607,16 @@ public class Server {
         @Override
         public void run() {
             try {
-
-                in = new Scanner(socket.getInputStream());
+                // [수정] BufferedReader를 사용하여 안정적으로 라인 단위로 읽음
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 out = new PrintWriter(socket.getOutputStream(), true);
 
                 synchronized (clientHandlers) {
                     clientHandlers.add(this);
 
-                    // 🌟 [추가] 방장 권한 부여 로직
                     if (currentHost == null) {
                         this.isHost = true;
-                        this.isReady = true; // 방장은 항상 준비 상태
+                        this.isReady = true;
                         currentHost = this;
                         sendMessage("SYSTEM:HOST_GRANTED");
                         broadcast("SYSTEM:P" + this.playerNumber + "(" + this.name + ") 님이 방장 권한을 획득했습니다.");
@@ -650,36 +627,30 @@ public class Server {
 
                 sendMessage("PLAYER_NUM:" + this.playerNumber);
 
-                // 닉네임 수신 대기 (Client.java에서 'NICKNAME:'으로 전송)
-                if (in.hasNextLine()) {
-                    String firstLine = in.nextLine();
-                    if (firstLine.startsWith("NICKNAME:")) {
-                        this.name = firstLine.substring(9).trim();
-                        if (this.name.isEmpty()) this.name = "P" + this.playerNumber;
+                // [수정] BufferedReader 사용에 맞춰 메시지 수신 로직 변경
+                String line;
+                while ((line = in.readLine()) != null) {
+                    final String message = line.trim();
+
+                    // [수정] 메시지가 비어있으면 건너뜀 (안전 장치)
+                    if (message.isEmpty()) {
+                        continue;
                     }
-                }
-
-                System.out.println(socket.getRemoteSocketAddress() + "가 P" + playerNumber + "(" + name + ")로 연결되었습니다.");
-                broadcast("SYSTEM:" + this.name + "(P" + this.playerNumber + ") 님이 입장했습니다.");
-                broadcastPlayerList(); // 입장 시 목록 업데이트
-
-                while (in.hasNextLine()) {
-                    String message = in.nextLine();
 
                     if (message.startsWith("TIMER:")) {
                         continue;
                     }
 
-                    if (status == PlayerStatus.DEAD && !message.startsWith("MSG:")) {
-                        sendMessage("SYSTEM:당신은 죽었습니다. 아무것도 할 수 없습니다.");
+                    // [수정] 사망자일 때 CHAT, /ready, /vote 외의 모든 능력/명령어 차단
+                    if (status == PlayerStatus.DEAD && !message.startsWith("CHAT:") && !message.startsWith("/ready") && !message.startsWith("/vote")) {
+                        sendMessage("SYSTEM:당신은 죽었습니다. 채팅 외의 행동은 할 수 없습니다.");
                         continue;
                     }
 
                     if (message.trim().equalsIgnoreCase("/start")) {
                         System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
-                        startGame(this); // [수정] startGame(this) 호출
+                        startGame(this);
                     }
-                    // 🌟 [추가] /ready 명령어 처리
                     else if (message.trim().equalsIgnoreCase("/ready")) {
                         System.out.println("P" + playerNumber + "로부터 /ready 명령 수신");
                         handleReady(this);
@@ -687,7 +658,7 @@ public class Server {
                     else if(message.trim().startsWith("/skill "))
                     {
                         if (currentPhase != GamePhase.NIGHT) {
-                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 있습니다.");
+                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 없습니다.");
                             continue;
                         }
                         switch (role){
@@ -711,52 +682,57 @@ public class Server {
                             sendMessage("SYSTEM:투표는 낮에만 할 수 있습니다.");
                         }
                     }
-                    else if (message.startsWith("MSG:")) {
+                    else if (message.startsWith("CHAT:")) {
                         synchronized (Server.class) {
-                            if (currentPhase == GamePhase.DAY) {
-                                String chatContent = message.substring(4);
-                                String playerPrefix = "P" + playerNumber + ": ";
+                            String fullChat = message.substring("CHAT:".length());
 
-                                if (status == PlayerStatus.ALIVE) {
-                                    System.out.println("[낮] " + playerPrefix + chatContent);
-                                    broadcast(playerPrefix + chatContent);
-                                } else {
-                                    System.out.println("[사망자] " + playerPrefix + chatContent);
-                                    broadcastToDead("[사망자채팅] " + playerPrefix + chatContent);
-                                }
+                            // [수정] 1. 사망자 여부 확인 (낮/밤 상관없이 사망자끼리만 대화 가능)
+                            if (this.status == PlayerStatus.DEAD) {
+                                System.out.println("[사망자 채팅] " + fullChat);
+                                broadcastToDeadExceptSender("CHAT:" + fullChat, this);
+                                return;
+                            }
+
+                            // 2. 생존자 채팅 (낮, 밤, 대기 중)
+                            if (currentPhase == GamePhase.DAY || currentPhase == GamePhase.WAITING) {
+                                System.out.println("[" + currentPhase.name() + "] " + fullChat);
+                                broadcastExceptSenderToAlive("CHAT:" + fullChat, this);
                             }
                             else if (currentPhase == GamePhase.NIGHT) {
-                                if(status == PlayerStatus.DEAD){
-                                    System.out.println("[사망자] P" + playerNumber + ": " + message.substring(4));
-                                    broadcastToDead("[사망자채팅] P" + playerNumber + ": " + message.substring(4));
+                                // [수정] 밤: 마피아 생존자 채팅
+                                if (role == Role.MAFIA && status == PlayerStatus.ALIVE) {
+                                    System.out.println("[밤-마피아] " + fullChat);
+                                    broadcastToMafiaExceptSender("CHAT:" + fullChat, this);
+
+                                } else {
+                                    // [수정] 밤: 시민팀 생존자 채팅 차단
+                                    System.out.println("[밤-시민팀 생존자] 메시지 차단");
+                                    sendMessage("SYSTEM:밤에는 마피아만 대화 가능합니다.");
                                 }
-                                if (role == Role.MAFIA) {
-                                    System.out.println("[밤-마피아] P" + playerNumber + ": " + message.substring(4));
-                                    broadcastToMafia("[마피아채팅] P" + playerNumber + ": " + message.substring(4));
-                                }
-                                else {
-                                    System.out.println("[밤-시민팀] P" + playerNumber + " 메시지 차단");
-                                    sendMessage("SYSTEM:밤에는 능력을 사용하거나 마피아만 대화할 수 있습니다.");
-                                }
-                            } else {
-                                System.out.println("[대기중] P" + playerNumber + ": " + message.substring(4));
-                                broadcast("P" + playerNumber + ": " + message.substring(4));
                             }
                         }
                     }
+                    else {
+                        sendMessage("SYSTEM:알 수 없는 명령어입니다.");
+                    }
                 }
+            } catch (IOException e) {
+                // [수정] IOException 발생 시 연결 종료로 간주
+                System.out.println("P" + playerNumber + "의 연결이 끊겼습니다 (IOException): " + e.getMessage());
             } catch (Exception e) {
-                System.out.println("P" + playerNumber + "의 연결이 끊겼습니다: " + e.getMessage());
+                // [수정] 기타 예외 발생 시 로그 출력
+                System.out.println("P" + playerNumber + " 처리 중 예상치 못한 오류 발생: " + e.getMessage());
+                e.printStackTrace();
             } finally {
+                // [수정] 연결 종료 및 정리 로직
                 if (out != null) {
                     synchronized (clientHandlers) {
                         clientHandlers.remove(this);
 
-                        // 🌟 [추가] 방장 위임 로직 (퇴장한 클라이언트가 방장이었으면)
                         if (this.isHost && clientHandlers.size() > 0) {
                             assignNewHost();
                         } else if (this.isHost) {
-                            currentHost = null; // 남아있는 클라이언트가 없으면 방장 없음
+                            currentHost = null;
                         }
 
                         GamePhase oldPhase = currentPhase;
@@ -769,9 +745,9 @@ public class Server {
                     }
                 }
                 try {
-                    socket.close();
+                    if (socket != null) socket.close();
                 } catch (IOException e) {}
-                broadcastPlayerList(); // 퇴장 시 목록 업데이트
+                broadcastPlayerList();
             }
         }
     }

@@ -24,7 +24,8 @@ public class Client {
     private volatile boolean isAlive = true;
     private String myRole = "";
 
-    // 🌟 [유지] 방장/준비 상태 변수
+    private String myNickname = "";
+
     private boolean isHost = false;
     private boolean isReady = false;
 
@@ -45,6 +46,7 @@ public class Client {
     public void connectToServer(String nickname, String host, int port) throws IOException {
         this.host = host;
         this.port = port;
+        this.myNickname = nickname;
 
         this.isHost = false;
         this.isReady = false;
@@ -94,10 +96,6 @@ public class Client {
                         List<String> players = Arrays.asList(list.split(","));
                         if (!inGame) {
                             waitingGamePanel.updatePlayerList(players);
-                            // 🌟 [수정 핵심]: 목록을 받았을 때, 방장이 아니라면 isReady 상태를 갱신합니다.
-                            // 목록에는 자신의 준비 상태가 포함되어 있으므로, 이 시점에 UI를 한 번 더 갱신합니다.
-                            // 하지만 isReady 상태는 SYSTEM: 메시지에서 갱신하는 것이 더 명확합니다.
-                            // **여기서는 목록 업데이트만 하고, 버튼 상태는 명확한 SYSTEM 메시지에만 의존합니다.**
                         } else {
                             gamePanel.updatePlayerList(players);
                         }
@@ -108,28 +106,29 @@ public class Client {
                     else if (msg.startsWith("START_GAME")) {
                         inGame = true;
                         showGamePanel();
-                        gamePanel.appendChatMessage("게임이 시작되었습니다.");
+                        gamePanel.appendChatMessage("시스템", "게임이 시작되었습니다.", false, false);
                         return;
                     }
 
                     // 4. ROLE:
                     else if (msg.startsWith("ROLE:")) {
                         myRole = msg.substring(5);
-                        gamePanel.appendChatMessage("[역할] 당신은 '" + myRole + "' 입니다.");
+                        gamePanel.appendChatMessage("시스템", "[역할] 당신은 '" + myRole + "' 입니다.", false, false);
                         return;
                     }
 
                     // 5. YOU_DIED:
                     else if (msg.equals("YOU_DIED")) {
                         isAlive = false;
-                        gamePanel.appendChatMessage("⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.");
+                        gamePanel.appendChatMessage("시스템", "⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.", false, false);
                         return;
                     }
 
                     // 6. GAME_OVER:
                     else if (msg.startsWith("GAME_OVER")) {
-                        gamePanel.appendChatMessage("[게임 종료] " + msg.substring("GAME_OVER".length()).trim());
-                        JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + msg.substring("GAME_OVER".length()).trim());
+                        String content = msg.substring("GAME_OVER".length()).trim();
+                        gamePanel.appendChatMessage("시스템", "[게임 종료] " + content, false, false);
+                        JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + content);
                         resetToLobby();
                         return;
                     }
@@ -138,38 +137,53 @@ public class Client {
                     else if (msg.startsWith("SYSTEM:")) {
                         String systemMsg = msg.substring("SYSTEM:".length()).trim();
 
-                        // 🌟 [수정 핵심]: **오직 명시적인 권한 부여 메시지**에 대해서만 isHost/isReady 상태를 변경하고 updateButtons()를 호출합니다.
-                        // 준비/취소 완료 메시지(SYSTEM:준비 완료되었습니다.)는 채팅으로만 출력하고, 버튼 상태 변경 로직에서 제외하여 오류를 방지합니다.
-
                         if (systemMsg.equals("HOST_GRANTED")) {
                             isHost = true;
-                            isReady = true; // 방장은 항상 준비 상태
+                            isReady = true;
                             waitingGamePanel.updateButtons(true, true);
                         }
                         else if (systemMsg.equals("GUEST_GRANTED")) {
                             isHost = false;
-                            isReady = false; // 일반 참여자는 초기 미준비 상태
+                            isReady = false;
                             waitingGamePanel.updateButtons(false, false);
                         }
-                        // 🚨 [제거]: "준비 완료되었습니다." 메시지를 통한 isReady/updateButtons() 호출 로직을 제거
-                        // isReady 상태 변경은 이제 /ready 명령을 보낼 때만 클라이언트 측에서 미리 반영합니다.
 
-                        // [수정] 시스템 메시지를 게임 상태에 따라 라우팅
                         if (!inGame) {
-                            waitingGamePanel.appendChatMessage("[시스템] " + systemMsg);
+                            waitingGamePanel.appendChatMessage(systemMsg);
                         } else {
-                            gamePanel.appendChatMessage("[시스템] " + systemMsg);
+                            gamePanel.appendChatMessage("시스템", systemMsg, false, false);
                         }
                         return;
                     }
 
-                    // 8. 기타 메시지(채팅으로 간주)
-                    else {
-                        if (!inGame) {
-                            waitingGamePanel.appendChatMessage(msg);
+                    // 8. 채팅 메시지 처리 (서버가 보내는 CHAT:닉네임:내용 형식)
+                    else if (msg.startsWith("CHAT:")) {
+                        String chatContent = msg.substring("CHAT:".length()).trim();
+                        int colonIndex = chatContent.indexOf(':');
+
+                        if (colonIndex > 0) {
+                            String sender = chatContent.substring(0, colonIndex).trim();
+                            String message = chatContent.substring(colonIndex + 1).trim();
+
+                            boolean isMyMessage = false;
+
+                            // [수정] 마피아 채팅인지 판단하는 로직 (수신자가 마피아 역할이고 밤 단계일 때)
+                            boolean isMafiaChat = inGame && gamePanel.getCurrentPhase().equals("NIGHT") && myRole.equals("MAFIA");
+
+                            if (!inGame) {
+                                waitingGamePanel.appendChatMessage(message);
+                            } else {
+                                gamePanel.appendChatMessage(sender, message, isMyMessage, isMafiaChat);
+                            }
                         } else {
-                            gamePanel.appendChatMessage(msg);
+                            handleGeneralMessage(msg);
                         }
+                        return;
+                    }
+
+                    // 9. 기타 메시지(Fallback)
+                    else {
+                        handleGeneralMessage(msg);
                         return;
                     }
                 });
@@ -185,12 +199,18 @@ public class Client {
         }
     }
 
-    // 🌟 [수정]: /ready 명령 전송 시 클라이언트의 isReady 상태를 먼저 업데이트합니다.
+    private void handleGeneralMessage(String msg) {
+        if (!inGame) {
+            waitingGamePanel.appendChatMessage(msg);
+        } else {
+            gamePanel.appendChatMessage("시스템", msg, false, false);
+        }
+    }
+
+
     public void handleReadyClick() {
         if (!isHost) {
             sendMessage("/ready");
-            // 🌟 [핵심 수정]: 서버 응답을 기다리지 않고, 클라이언트에서 먼저 상태를 토글하고 UI를 업데이트합니다.
-            // 서버는 이 상태를 확인하는 용도로만 사용됩니다.
             isReady = !isReady;
             waitingGamePanel.updateButtons(isHost, isReady);
         } else {
@@ -214,8 +234,41 @@ public class Client {
 
         if (msg.startsWith("/")) {
             out.println(msg);
+
         } else {
-            out.println("MSG:" + msg);
+            // [수정] 1. 사망자 처리 (사망자 채팅은 언제나 가능하며, role 검사 없이 통과)
+            if (!isAlive) {
+                boolean isMafiaChat = false;
+
+                out.println("CHAT:" + myNickname + ":" + msg);
+
+                if (!inGame) {
+                    waitingGamePanel.appendChatMessage(msg);
+                } else {
+                    gamePanel.appendChatMessage(myNickname, msg, true, isMafiaChat);
+                }
+                return; // 사망자 채팅은 여기서 처리 완료
+            }
+
+            // [수정] 2. 생존자 밤 채팅 통제
+            if (inGame && gamePanel.getCurrentPhase().equals("NIGHT")) {
+                // 생존자이면서 마피아가 아닌 경우 차단
+                if (!myRole.equals("MAFIA")) {
+                    JOptionPane.showMessageDialog(frame, "밤에는 마피아만 대화 가능합니다.", "경고", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+            }
+
+            // [수정] 3. 생존자 채팅 전송 및 즉시 화면 표시
+            out.println("CHAT:" + myNickname + ":" + msg);
+
+            boolean isMafiaChat = inGame && gamePanel.getCurrentPhase().equals("NIGHT") && myRole.equals("MAFIA");
+
+            if (!inGame) {
+                waitingGamePanel.appendChatMessage(msg);
+            } else {
+                gamePanel.appendChatMessage(myNickname, msg, true, isMafiaChat);
+            }
         }
     }
 
@@ -257,6 +310,10 @@ public class Client {
 
     public boolean isAlive() {
         return isAlive;
+    }
+
+    public String getRoleCommand() {
+        return "/skill ";
     }
 
     public static void main(String[] args) {
