@@ -106,28 +106,32 @@ public class Client {
                     else if (msg.startsWith("START_GAME")) {
                         inGame = true;
                         showGamePanel();
-                        gamePanel.appendChatMessage("시스템", "게임이 시작되었습니다.", false, false);
+                        // [수정] appendChatMessage 인자 수정
+                        gamePanel.appendChatMessage("시스템", "게임이 시작되었습니다.", false);
                         return;
                     }
 
                     // 4. ROLE:
                     else if (msg.startsWith("ROLE:")) {
                         myRole = msg.substring(5);
-                        gamePanel.appendChatMessage("시스템", "[역할] 당신은 '" + myRole + "' 입니다.", false, false);
+                        // [수정] appendChatMessage 인자 수정
+                        gamePanel.appendChatMessage("시스템", "[역할] 당신은 '" + myRole + "' 입니다.", false);
                         return;
                     }
 
                     // 5. YOU_DIED:
                     else if (msg.equals("YOU_DIED")) {
                         isAlive = false;
-                        gamePanel.appendChatMessage("시스템", "⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.", false, false);
+                        // [수정] appendChatMessage 인자 수정
+                        gamePanel.appendChatMessage("시스템", "⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.", false);
                         return;
                     }
 
                     // 6. GAME_OVER:
                     else if (msg.startsWith("GAME_OVER")) {
                         String content = msg.substring("GAME_OVER".length()).trim();
-                        gamePanel.appendChatMessage("시스템", "[게임 종료] " + content, false, false);
+                        // [수정] appendChatMessage 인자 수정
+                        gamePanel.appendChatMessage("시스템", "[게임 종료] " + content, false);
                         JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + content);
                         resetToLobby();
                         return;
@@ -151,7 +155,8 @@ public class Client {
                         if (!inGame) {
                             waitingGamePanel.appendChatMessage(systemMsg);
                         } else {
-                            gamePanel.appendChatMessage("시스템", systemMsg, false, false);
+                            // [수정] appendChatMessage 인자 수정
+                            gamePanel.appendChatMessage("시스템", systemMsg, false);
                         }
                         return;
                     }
@@ -165,15 +170,13 @@ public class Client {
                             String sender = chatContent.substring(0, colonIndex).trim();
                             String message = chatContent.substring(colonIndex + 1).trim();
 
-                            boolean isMyMessage = false;
-
-                            // [수정] 마피아 채팅인지 판단하는 로직 (수신자가 마피아 역할이고 밤 단계일 때)
-                            boolean isMafiaChat = inGame && gamePanel.getCurrentPhase().equals("NIGHT") && myRole.equals("MAFIA");
+                            boolean isMyMessage = sender.equals(myNickname); // [수정] 내가 보낸 메시지인지 확인
 
                             if (!inGame) {
                                 waitingGamePanel.appendChatMessage(message);
                             } else {
-                                gamePanel.appendChatMessage(sender, message, isMyMessage, isMafiaChat);
+                                // [수정] appendChatMessage 인자 수정
+                                gamePanel.appendChatMessage(sender, message, isMyMessage);
                             }
                         } else {
                             handleGeneralMessage(msg);
@@ -203,7 +206,8 @@ public class Client {
         if (!inGame) {
             waitingGamePanel.appendChatMessage(msg);
         } else {
-            gamePanel.appendChatMessage("시스템", msg, false, false);
+            // [수정] appendChatMessage 인자 수정
+            gamePanel.appendChatMessage("시스템", msg, false);
         }
     }
 
@@ -238,21 +242,19 @@ public class Client {
         } else {
             // [수정] 1. 사망자 처리 (사망자 채팅은 언제나 가능하며, role 검사 없이 통과)
             if (!isAlive) {
-                boolean isMafiaChat = false;
-
                 out.println("CHAT:" + myNickname + ":" + msg);
 
                 if (!inGame) {
                     waitingGamePanel.appendChatMessage(msg);
                 } else {
-                    gamePanel.appendChatMessage(myNickname, msg, true, isMafiaChat);
+                    // [수정] appendChatMessage 인자 수정
+                    gamePanel.appendChatMessage(myNickname, msg, true);
                 }
                 return;
             }
 
             // [수정] 2. 생존자 밤 채팅 통제
             if (inGame && gamePanel.getCurrentPhase().equals("NIGHT")) {
-                // 생존자이면서 마피아가 아닌 경우 차단
                 if (!myRole.equals("MAFIA")) {
                     JOptionPane.showMessageDialog(frame, "밤에는 마피아만 대화 가능합니다.", "경고", JOptionPane.WARNING_MESSAGE);
                     return;
@@ -262,12 +264,11 @@ public class Client {
             // [수정] 3. 생존자 채팅 전송 및 즉시 화면 표시
             out.println("CHAT:" + myNickname + ":" + msg);
 
-            boolean isMafiaChat = inGame && gamePanel.getCurrentPhase().equals("NIGHT") && myRole.equals("MAFIA");
-
             if (!inGame) {
                 waitingGamePanel.appendChatMessage(msg);
             } else {
-                gamePanel.appendChatMessage(myNickname, msg, true, isMafiaChat);
+                // [수정] appendChatMessage 인자 수정
+                gamePanel.appendChatMessage(myNickname, msg, true);
             }
         }
     }
@@ -310,10 +311,6 @@ public class Client {
 
     public boolean isAlive() {
         return isAlive;
-    }
-
-    public String getRoleCommand() {
-        return "/skill ";
     }
 
     public static void main(String[] args) {
