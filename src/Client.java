@@ -247,7 +247,7 @@ public class Client {
                 } else {
                     gamePanel.appendChatMessage(myNickname, msg, true, isMafiaChat);
                 }
-                return; // 사망자 채팅은 여기서 처리 완료
+                return;
             }
 
             // [수정] 2. 생존자 밤 채팅 통제

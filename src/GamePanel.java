@@ -1,9 +1,13 @@
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.imageio.ImageIO;
 
 public class GamePanel extends JPanel {
+
+    private Image backgroundImage;
 
     private JPanel messageContainerPanel;
     private JScrollPane chatScrollPane;
@@ -25,19 +29,34 @@ public class GamePanel extends JPanel {
     public GamePanel(Client client) {
         this.client = client;
 
+        try {
+            java.net.URL imageUrl = getClass().getResource("/background.png");
+            if (imageUrl != null) {
+                backgroundImage = ImageIO.read(imageUrl);
+            } else {
+                System.err.println("경고: 클래스 경로에서 /background.png 이미지를 찾을 수 없습니다. (경로 확인 필요)");
+            }
+        } catch (IOException e) {
+            System.err.println("배경 이미지 로드 중 오류 발생.");
+            e.printStackTrace();
+        }
+
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         setPreferredSize(new Dimension(400, 600));
 
         JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setOpaque(false);
 
         JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         titlePanel.add(new JLabel("게임 대화창"));
+        titlePanel.setOpaque(false);
         headerPanel.add(titlePanel, BorderLayout.WEST);
 
         timerLabel = new JLabel("현재 단계: 대기 중", SwingConstants.RIGHT);
         timerLabel.setFont(new Font("맑은 고딕", Font.BOLD, 14));
         timerLabel.setForeground(Color.BLUE);
+        timerLabel.setOpaque(false);
         headerPanel.add(timerLabel, BorderLayout.EAST);
 
         add(headerPanel, BorderLayout.NORTH);
@@ -45,19 +64,24 @@ public class GamePanel extends JPanel {
         messageContainerPanel = new JPanel();
         messageContainerPanel.setLayout(new BoxLayout(messageContainerPanel, BoxLayout.Y_AXIS));
         messageContainerPanel.setAlignmentY(Component.TOP_ALIGNMENT);
+        messageContainerPanel.setOpaque(false);
 
         chatScrollPane = new JScrollPane(messageContainerPanel);
         chatScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         chatScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        chatScrollPane.setOpaque(false);
+        chatScrollPane.getViewport().setOpaque(false);
 
         appendChatMessage("시스템", "게임 시작을 기다립니다...", false, false);
 
         add(chatScrollPane, BorderLayout.CENTER);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.setOpaque(false);
         add(bottomPanel, BorderLayout.SOUTH);
 
         JPanel inputPanel = new JPanel(new BorderLayout());
+        inputPanel.setOpaque(false);
         inputField = new JTextField();
         inputPanel.add(new JLabel("(입력)"), BorderLayout.WEST);
         inputPanel.add(inputField, BorderLayout.CENTER);
@@ -70,9 +94,11 @@ public class GamePanel extends JPanel {
 
         playerButtonPanel = new JPanel();
         playerButtonPanel.setLayout(new GridLayout(2, 5, 5, 5));
+        playerButtonPanel.setOpaque(false);
         bottomPanel.add(playerButtonPanel, BorderLayout.CENTER);
 
         JPanel actionPanel = new JPanel(new FlowLayout());
+        actionPanel.setOpaque(false);
 
         voteButton = new JButton("투표");
         skillButton = new JButton("능력");
@@ -107,6 +133,14 @@ public class GamePanel extends JPanel {
         });
     }
 
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        if (backgroundImage != null) {
+            g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+        }
+    }
+
     public String getCurrentPhase() {
         return this.currentPhase;
     }
@@ -125,28 +159,26 @@ public class GamePanel extends JPanel {
             return "";
         }
     }
-
-    /** [수정] 채팅 메시지 추가 (시스템 배경색 제거) */
     public void appendChatMessage(String sender, String message, boolean isMyMessage, boolean isMafiaChat) {
         JLabel messageLabel = new JLabel("<html>" + sender + ": " + message + "</html>");
 
-        JPanel messageRowPanel = new JPanel(new FlowLayout(isMyMessage ? FlowLayout.RIGHT : FlowLayout.LEFT));
+        JPanel messageRowPanel = new JPanel(isMyMessage ? new FlowLayout(FlowLayout.RIGHT) : new FlowLayout(FlowLayout.LEFT));
         messageRowPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, messageLabel.getPreferredSize().height + 10));
+        messageRowPanel.setOpaque(false);
 
-        // [수정] 3. 메시지 라벨에 스타일 적용
         messageLabel.setOpaque(true);
         if (isMafiaChat) {
             messageLabel.setBackground(new Color(255, 100, 100));
-            messageLabel.setForeground(Color.WHITE); // [수정] 마피아 채팅 글자색 흰색
+            messageLabel.setForeground(Color.WHITE);
         } else if (isMyMessage) {
             messageLabel.setBackground(new Color(200, 230, 255));
             messageLabel.setForeground(Color.BLACK);
         } else if (sender.equals("시스템")) {
             messageLabel.setForeground(Color.GRAY);
-            messageLabel.setBackground(null); // [수정] 배경색 투명
-            messageLabel.setOpaque(false); // [추가] 배경 투명 보장
+            messageLabel.setBackground(null);
+            messageLabel.setOpaque(false);
         } else {
-            messageLabel.setBackground(new Color(240, 240, 240));
+            messageLabel.setBackground(new Color(240, 240, 240, 180));
             messageLabel.setForeground(Color.BLACK);
         }
         messageLabel.setBorder(BorderFactory.createEmptyBorder(5, 8, 5, 8));
@@ -166,7 +198,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    /** [수정] 이전 appendChatMessage 오버로드 */
     public void appendChatMessage(String message) {
         appendChatMessage("시스템", message, false, false);
     }
@@ -226,6 +257,7 @@ public class GamePanel extends JPanel {
         this.currentPhase = phase;
         String phaseText = "";
 
+        // Client 클래스에 있어야 하는 메서드 (가정)
         boolean isAbilityUser = client.hasAbility();
         boolean isClientAlive = client.isAlive();
 
