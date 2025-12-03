@@ -475,10 +475,10 @@ public class Server {
         }
     }
 
-    private static void broadcastExceptSenderToAlive(String message, ClientHandler sender) {
+    private static void broadcastExceptSenderToAll(String message, ClientHandler sender) {
         synchronized (clientHandlers) {
             for (ClientHandler handler : clientHandlers) {
-                if (handler != sender && handler.status == PlayerStatus.ALIVE) {
+                if (handler != sender) {
                     handler.sendMessage(message);
                 }
             }
@@ -690,24 +690,24 @@ public class Server {
                             if (this.status == PlayerStatus.DEAD) {
                                 System.out.println("[사망자 채팅] " + fullChat);
                                 broadcastToDeadExceptSender("CHAT:" + fullChat, this);
-                                return;
                             }
 
-                            // 2. 생존자 채팅 (낮, 밤, 대기 중)
-                            if (currentPhase == GamePhase.DAY || currentPhase == GamePhase.WAITING) {
-                                System.out.println("[" + currentPhase.name() + "] " + fullChat);
-                                broadcastExceptSenderToAlive("CHAT:" + fullChat, this);
-                            }
-                            else if (currentPhase == GamePhase.NIGHT) {
-                                // [수정] 밤: 마피아 생존자 채팅
-                                if (role == Role.MAFIA && status == PlayerStatus.ALIVE) {
-                                    System.out.println("[밤-마피아] " + fullChat);
-                                    broadcastToMafiaExceptSender("CHAT:" + fullChat, this);
+                            else {
+                                // 2. 생존자 채팅 (낮, 밤, 대기 중)
+                                if (currentPhase == GamePhase.DAY || currentPhase == GamePhase.WAITING) {
+                                    System.out.println("[" + currentPhase.name() + "] " + fullChat);
+                                    broadcastExceptSenderToAll("CHAT:" + fullChat, this);
+                                } else if (currentPhase == GamePhase.NIGHT) {
+                                    // [수정] 밤: 마피아 생존자 채팅
+                                    if (role == Role.MAFIA && status == PlayerStatus.ALIVE) {
+                                        System.out.println("[밤-마피아] " + fullChat);
+                                        broadcastToMafiaExceptSender("CHAT:" + fullChat, this);
 
-                                } else {
-                                    // [수정] 밤: 시민팀 생존자 채팅 차단
-                                    System.out.println("[밤-시민팀 생존자] 메시지 차단");
-                                    sendMessage("SYSTEM:밤에는 마피아만 대화 가능합니다.");
+                                    } else {
+                                        // [수정] 밤: 시민팀 생존자 채팅 차단
+                                        System.out.println("[밤-시민팀 생존자] 메시지 차단");
+                                        sendMessage("SYSTEM:밤에는 마피아만 대화 가능합니다.");
+                                    }
                                 }
                             }
                         }
