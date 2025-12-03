@@ -88,13 +88,8 @@ public class WaitingGamePanel extends JPanel {
         repaint();
     }
 
-    /**
-     * 🌟 [수정] 목록 리셋 시 사용. 채팅 영역도 초기화.
-     */
-    public void clearPlayerList() {
-        displayArea.setText("참가자 목록을 갱신 중입니다...\n");
+    public void clearDisplay() {
+        displayArea.setText("--- 게임이 종료되었습니다. 로비 상태로 돌아왔습니다. ---\n");
+        displayArea.setCaretPosition(displayArea.getDocument().getLength());
     }
-
-    // 🌟 [삭제] 기존의 enableStartButton(), disableStartButton() 함수는
-    // updateButtons() 함수로 대체되어 삭제합니다.
 }

@@ -133,6 +133,8 @@ public class Client {
                         // [수정] appendChatMessage 인자 수정
                         gamePanel.appendChatMessage("시스템", "[게임 종료] " + content, false);
                         JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + content);
+
+                        // [수정] resetToLobby()를 호출하여 로비로 돌아가는 모든 로직을 처리합니다.
                         resetToLobby();
                         return;
                     }
@@ -197,6 +199,8 @@ public class Client {
             try { if (socket != null) socket.close(); } catch (Exception ignored) {}
             SwingUtilities.invokeLater(() -> {
                 JOptionPane.showMessageDialog(frame, "서버 연결이 끊겼습니다.");
+
+                // [수정] 연결 끊김 시에도 방장 상태를 유지한 채 로비로 돌아가도록 resetToLobby() 호출
                 resetToLobby();
             });
         }
@@ -289,19 +293,30 @@ public class Client {
     }
 
     private void resetToLobby() {
+        // ⭐️ [수정] 현재 isHost 상태를 저장하고, isReady 상태만 변경합니다.
+        boolean wasHost = this.isHost;
+
         inGame = false;
         isAlive = true;
         myRole = "";
 
-        this.isHost = false;
-        this.isReady = false;
+        // isHost는 그대로 두고, isReady만 방장이었으면 true로, 아니면 false로 초기화
+        this.isReady = wasHost;
+
+        // Note: this.isHost = false; 로직은 제거되어 방장 권한이 유지됩니다.
 
         SwingUtilities.invokeLater(() -> {
             gamePanel.clearGameState();
 
             showWaitingPanel();
-            waitingGamePanel.clearPlayerList();
-            waitingGamePanel.updateButtons(false, false);
+
+            // [수정] 게임 종료 후 패널 내용 초기화 (WaitingGamePanel에 clearDisplay()가 있다고 가정)
+            // waitingGamePanel.clearPlayerList(); // <- 이 대신
+            waitingGamePanel.clearDisplay();
+
+            // ⭐️ [수정] 저장된 wasHost 상태를 기반으로 버튼을 업데이트합니다.
+            // 방장이었으면 '게임 시작' 버튼이 보이게 됩니다.
+            waitingGamePanel.updateButtons(wasHost, this.isReady);
         });
     }
 
