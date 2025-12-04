@@ -6,13 +6,12 @@ import java.util.List;
 import javax.imageio.ImageIO;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Map;
 
 public class GamePanel extends JPanel {
 
     private Image backgroundImage;
-
-    // [수정] messageContainerPanel 대신 contentPanel을 JScrollPane의 뷰포트에 직접 사용
-    private JPanel contentPanel; // [수정] 실제 메시지 행을 담을 패널
+    private JPanel contentPanel;
     private JScrollPane chatScrollPane;
 
     private JTextField inputField;
@@ -22,12 +21,96 @@ public class GamePanel extends JPanel {
 
     private JLabel timerLabel;
 
+    private JLabel myRoleIconLabel;
+
     private List<JButton> playerButtons = new ArrayList<>();
     private String selectedPlayer = null;
 
     private final Client client;
 
     private String currentPhase = "WAITING";
+
+    private static final int PROFILE_ICON_SIZE = 50;
+    private static final int ROLE_ICON_SIZE = 40;
+
+    private BufferedImage loadProfileImage(String playerInfo) {
+        String playerNumber = extractPlayerNumber(playerInfo);
+        String imageName = "unknown.png";
+
+        // 1. 조사된 역할 확인 (Client로부터 가져옴)
+        String investigatedRole = client.getInvestigatedRoles().get("P" + playerNumber);
+
+        // 2. 조사된 역할에 따라 이미지 이름 결정
+        if (investigatedRole != null) {
+            // 경찰 조사를 통해 역할이 확정된 경우
+            if (investigatedRole.equals("MAFIA")) {
+                imageName = "mafia.png";
+            } else { // CITIZEN 또는 DOCTOR, POLICE가 조사 결과로 넘어올 경우 모두 시민팀으로 처리
+                imageName = "citizen.png";
+            }
+        }
+        // 3. 조사되지 않았거나 게임 전일 경우, 본인 확인
+        else {
+            String myRole = client.getMyRole();
+            String myPlayerInfo = "P" + client.getMyPlayerNumber() + " -";
+
+            if (playerInfo.startsWith(myPlayerInfo) && !myRole.isEmpty()) {
+                imageName = myRole.toLowerCase() + ".png";
+            }
+        }
+
+        String path = "/" + imageName;
+
+        try {
+            java.net.URL imageUrl = getClass().getResource(path);
+            if (imageUrl != null) {
+                BufferedImage original = ImageIO.read(imageUrl);
+                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2d = scaled.createGraphics();
+                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
+                g2d.dispose();
+                return scaled;
+            }
+        } catch (IOException e) {
+            System.err.println("경고: 기본/역할 이미지 에셋을 찾을 수 없습니다: " + path);
+        }
+        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+    }
+
+    private BufferedImage loadMarkImage(String imageName) {
+        String path = "/" + imageName;
+        try {
+            java.net.URL imageUrl = getClass().getResource(path);
+            if (imageUrl != null) {
+                BufferedImage original = ImageIO.read(imageUrl);
+                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2d = scaled.createGraphics();
+                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
+                g2d.dispose();
+                return scaled;
+            }
+        } catch (IOException e) {
+            System.err.println("경고: 마크 이미지 에셋을 찾을 수 없습니다: " + path);
+        }
+        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+    }
+
+    public ImageIcon loadRoleIcon(String role) {
+        String imagePath = "/" + role.toLowerCase() + ".png";
+        try {
+            java.net.URL imageUrl = getClass().getResource(imagePath);
+            if (imageUrl != null) {
+                Image img = ImageIO.read(imageUrl).getScaledInstance(
+                        ROLE_ICON_SIZE, ROLE_ICON_SIZE, Image.SCALE_SMOOTH);
+                return new ImageIcon(img);
+            }
+        } catch (IOException e) {
+            System.err.println("경고: 역할 이미지 로드 실패: " + imagePath);
+        }
+        return new ImageIcon(new BufferedImage(ROLE_ICON_SIZE, ROLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+    }
 
     public GamePanel(Client client) {
         this.client = client;
@@ -48,35 +131,42 @@ public class GamePanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         setPreferredSize(new Dimension(400, 600));
 
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setOpaque(false);
+        JPanel newHeaderPanel = new JPanel(new BorderLayout());
+        newHeaderPanel.setOpaque(false);
 
         JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         titlePanel.add(new JLabel("게임 대화창"));
         titlePanel.setOpaque(false);
-        headerPanel.add(titlePanel, BorderLayout.WEST);
+        newHeaderPanel.add(titlePanel, BorderLayout.WEST);
 
         timerLabel = new JLabel("현재 단계: 대기 중", SwingConstants.RIGHT);
         timerLabel.setFont(new Font("맑은 고딕", Font.BOLD, 14));
         timerLabel.setForeground(Color.BLUE);
         timerLabel.setOpaque(false);
-        headerPanel.add(timerLabel, BorderLayout.EAST);
 
-        add(headerPanel, BorderLayout.NORTH);
+        myRoleIconLabel = new JLabel();
+        myRoleIconLabel.setPreferredSize(new Dimension(ROLE_ICON_SIZE, ROLE_ICON_SIZE));
 
-        // [수정] messageContainerPanel 제거, contentPanel을 사용
+        JPanel rightHeaderPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        rightHeaderPanel.setOpaque(false);
+        rightHeaderPanel.add(myRoleIconLabel);
+        rightHeaderPanel.add(timerLabel);
+
+        newHeaderPanel.add(rightHeaderPanel, BorderLayout.EAST);
+
+        add(newHeaderPanel, BorderLayout.NORTH);
+
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setAlignmentY(Component.TOP_ALIGNMENT);
         contentPanel.setOpaque(false);
 
-        chatScrollPane = new JScrollPane(contentPanel); // [수정] contentPanel을 JScrollPane에 연결
+        chatScrollPane = new JScrollPane(contentPanel);
         chatScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         chatScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         chatScrollPane.setOpaque(false);
         chatScrollPane.getViewport().setOpaque(false);
 
-        // [수정] appendChatMessage 인자 수정
         appendChatMessage("시스템", "게임 시작을 기다립니다...", false);
 
         add(chatScrollPane, BorderLayout.CENTER);
@@ -120,7 +210,6 @@ public class GamePanel extends JPanel {
             if (selectedPlayer != null) {
                 String playerNumber = extractPlayerNumber(selectedPlayer);
                 client.sendMessage("/vote " + playerNumber);
-                // [수정] appendChatMessage 인자 수정
                 appendChatMessage("시스템", "[투표] P" + playerNumber + " 에게 투표했습니다.", false);
             } else {
                 JOptionPane.showMessageDialog(this, "투표 대상을 먼저 선택하세요.");
@@ -138,6 +227,59 @@ public class GamePanel extends JPanel {
             }
         });
     }
+
+    private void updateButtonIcon(JButton btn, String playerInfo, boolean isSelected) {
+        BufferedImage baseImage;
+
+        if (isSelected) {
+            baseImage = loadMarkImage("mark.png");
+        } else {
+            baseImage = loadProfileImage(playerInfo);
+        }
+
+        btn.setText(null);
+        btn.setPreferredSize(new Dimension(PROFILE_ICON_SIZE + 20, PROFILE_ICON_SIZE + 20));
+
+        String playerNumber = extractPlayerNumber(playerInfo);
+
+        Image finalImage = applyMarkAndRole(baseImage, playerNumber, isSelected);
+        btn.setIcon(new ImageIcon(finalImage));
+    }
+
+    // [수정] applyMarkAndRole: 조사 결과 마크 로직 제거
+    private Image applyMarkAndRole(BufferedImage baseImage, String playerNumber, boolean isSelected) {
+
+        if (isSelected) {
+            return baseImage;
+        }
+
+        BufferedImage overlaidImage = new BufferedImage(
+                baseImage.getWidth(), baseImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = overlaidImage.createGraphics();
+        g2d.drawImage(baseImage, 0, 0, null);
+
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        String markedPlayer = client.getMarkedPlayer();
+
+        // 밤 능력 대상 마크 적용
+        if (markedPlayer.equals("P" + playerNumber) && currentPhase.equals("NIGHT")) {
+            String targetPath = "/mark_target.png";
+            try {
+                java.net.URL targetUrl = getClass().getResource(targetPath);
+                if (targetUrl != null) {
+                    BufferedImage targetMark = ImageIO.read(targetUrl);
+                    g2d.drawImage(targetMark, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
+                }
+            } catch (IOException e) {
+                System.err.println("경고: 대상 마크 이미지 로드 실패: " + targetPath);
+            }
+        }
+
+        g2d.dispose();
+        return overlaidImage;
+    }
+
 
     @Override
     protected void paintComponent(Graphics g) {
@@ -166,9 +308,7 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // [수정] appendChatMessage 메서드 오버로드 제거 및 구조 변경
-    public void appendChatMessage(String sender, String message, boolean isMyMessage) {
-        // [수정] 시스템 메시지 처리
+    public void appendChatMessage(String sender, String message, boolean isMyMessage, String type) {
         if (sender.equals("시스템")) {
             JLabel systemLabel = new JLabel("<html><font color='gray'>[시스템] " + message + "</font></html>");
             systemLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
@@ -178,9 +318,8 @@ public class GamePanel extends JPanel {
             rowPanel.setOpaque(false);
             rowPanel.add(systemLabel);
 
-            contentPanel.add(rowPanel); // [수정] contentPanel에 추가
+            contentPanel.add(rowPanel);
 
-            // 시스템 메시지는 별도의 재계산이 필요 없음
             contentPanel.revalidate();
             contentPanel.repaint();
 
@@ -191,37 +330,27 @@ public class GamePanel extends JPanel {
                 });
             }
         } else {
-            // [수정] ChatMessagePanel을 사용하여 말풍선 형태로 표시
-            ChatMessagePanel chatRow = new ChatMessagePanel(sender, message, isMyMessage);
+            ChatMessagePanel chatRow = new ChatMessagePanel(sender, message, isMyMessage, type);
 
-            // [수정] 메시지 행을 담을 FlowLayout 패널을 생성하여 정렬 담당
             JPanel alignmentRow = new JPanel();
             alignmentRow.setLayout(new FlowLayout(isMyMessage ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0));
             alignmentRow.setOpaque(false);
 
-            // [수정] ChatMessagePanel의 최대 너비를 제한하여 내용물 크기 이상으로 늘어나지 않도록 함
             int maxChatWidth = (int) (chatScrollPane.getWidth() * 0.70);
             chatRow.setMaximumSize(new Dimension(maxChatWidth, Integer.MAX_VALUE));
 
-            alignmentRow.add(chatRow); // ChatMessagePanel을 FlowLayout 패널에 추가
-            contentPanel.add(alignmentRow); // FlowLayout 패널을 BoxLayout(Y_AXIS)에 추가
+            alignmentRow.add(chatRow);
+            contentPanel.add(alignmentRow);
 
-            // [수정] ⚠️ 최종 안정화 로직: 메시지를 추가한 후, UI 큐의 맨 뒤에서 크기 계산 및 적용을 강제합니다.
             SwingUtilities.invokeLater(() -> {
-                // 1. contentPanel을 유효화하여 chatRow의 preferredSize를 확정합니다.
                 contentPanel.revalidate();
-
-                // 2. ChatMessagePanel의 최종 선호 크기를 얻어 maximumSize로 재설정
                 Dimension preferredSize = chatRow.getPreferredSize();
                 int finalWidth = Math.min(preferredSize.width, maxChatWidth);
 
-                // 높이도 preferredSize를 따르도록 설정
                 chatRow.setMaximumSize(new Dimension(finalWidth, preferredSize.height));
 
-                // 3. 크기 제한을 적용하기 위해 다시 한번 유효화합니다. (매우 중요)
                 contentPanel.revalidate();
 
-                // 4. 스크롤 최하단 이동
                 if (chatScrollPane != null) {
                     JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
                     vertical.setValue(vertical.getMaximum());
@@ -230,13 +359,33 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // [수정] 인자가 4개였던 오버로드 메서드 제거, 인자 1개 오버로드 메서드도 3개 인자 버전으로 변경
-    public void appendChatMessage(String message) {
-        appendChatMessage("시스템", message, false);
+    public void appendChatMessage(String sender, String message, boolean isMyMessage) {
+        appendChatMessage(sender, message, isMyMessage, "NORMAL");
     }
 
-    public void enableInputField(boolean enable) {
-        inputField.setEnabled(enable);
+    public void updatePlayerMarks() {
+        for (JButton btn : playerButtons) {
+            String playerInfo = (String) btn.getClientProperty("PlayerInfo");
+
+            boolean isSelected = playerInfo != null && playerInfo.equals(selectedPlayer);
+
+            if (playerInfo != null) {
+                updateButtonIcon(btn, playerInfo, isSelected);
+            }
+        }
+        playerButtonPanel.revalidate();
+        playerButtonPanel.repaint();
+    }
+
+    public void updateMyRoleDisplay(String role) {
+        if (role == null || role.equals("UNKNOWN")) {
+            myRoleIconLabel.setIcon(null);
+            myRoleIconLabel.setToolTipText(null);
+        } else {
+            ImageIcon icon = loadRoleIcon(role);
+            myRoleIconLabel.setIcon(icon);
+            myRoleIconLabel.setToolTipText("나의 역할: " + role);
+        }
     }
 
     public void updatePlayerList(List<String> players) {
@@ -245,11 +394,22 @@ public class GamePanel extends JPanel {
         selectedPlayer = null;
 
         for (String p : players) {
-            JButton btn = new JButton(p);
+
+            JButton btn = new JButton();
+            btn.putClientProperty("PlayerInfo", p);
+            btn.setToolTipText(p);
+
+            updateButtonIcon(btn, p, false);
+
             btn.setFocusable(false);
 
             btn.addActionListener(e -> {
-                selectedPlayer = btn.getText();
+                String currentInfo = (String) btn.getClientProperty("PlayerInfo");
+                if (currentInfo.equals(selectedPlayer)) {
+                    selectedPlayer = null;
+                } else {
+                    selectedPlayer = currentInfo;
+                }
                 highlightSelectedButton(btn);
             });
 
@@ -262,13 +422,13 @@ public class GamePanel extends JPanel {
     }
 
     public void clearGameState() {
-        contentPanel.removeAll(); // [수정] messageContainerPanel 대신 contentPanel 사용
-        // [수정] appendChatMessage 인자 수정
+        contentPanel.removeAll();
         appendChatMessage("시스템", "게임 시작을 기다립니다...", false);
         contentPanel.revalidate();
         contentPanel.repaint();
 
         updateTimer("WAITING", 0);
+        updateMyRoleDisplay("UNKNOWN");
 
         selectedPlayer = null;
         for (JButton btn : playerButtons) {
@@ -279,19 +439,26 @@ public class GamePanel extends JPanel {
 
     private void highlightSelectedButton(JButton selected) {
         for (JButton btn : playerButtons) {
+            String playerInfo = (String) btn.getClientProperty("PlayerInfo");
+
+            updateButtonIcon(btn, playerInfo, false);
+
             btn.setBackground(null);
             btn.setForeground(Color.BLACK);
         }
 
-        selected.setBackground(Color.BLACK);
-        selected.setForeground(Color.WHITE);
+        if (selectedPlayer != null) {
+            updateButtonIcon(selected, selectedPlayer, true);
+
+            selected.setBackground(Color.DARK_GRAY);
+            selected.setForeground(Color.WHITE);
+        }
     }
 
     public void updateTimer(String phase, int secondsLeft) {
         this.currentPhase = phase;
         String phaseText = "";
 
-        // Client 클래스에 있어야 하는 메서드 (가정)
         boolean isAbilityUser = client.hasAbility();
         boolean isClientAlive = client.isAlive();
 
@@ -350,23 +517,21 @@ public class GamePanel extends JPanel {
         });
     }
 
-    // [수정] 내부 클래스: BubblePanel
     class BubblePanel extends JPanel {
         private final boolean isMyMessage;
+        private final String type;
 
-        // 꼬리 크기
         private static final int TAIL_SIZE = 5;
-        // 둥근 모서리 반지름
         private static final int ARC = 15;
 
-        public BubblePanel(boolean isMyMessage) {
+        public BubblePanel(boolean isMyMessage, String type) {
             super(new FlowLayout(isMyMessage ? FlowLayout.RIGHT : FlowLayout.LEFT));
             this.isMyMessage = isMyMessage;
+            this.type = type;
             setOpaque(false);
             setBorder(BorderFactory.createEmptyBorder(4, TAIL_SIZE + 5, 4, TAIL_SIZE + 5));
         }
 
-        // [수정] getPreferredSize 오버라이드 유지 (내부 레이아웃 크기 계산)
         @Override
         public Dimension getPreferredSize() {
             Dimension d = super.getPreferredSize();
@@ -383,12 +548,33 @@ public class GamePanel extends JPanel {
             int w = getWidth();
             int h = getHeight();
 
-            // 배경색 설정 (말풍선 색상)
+            Color bubbleColor;
             if (isMyMessage) {
-                g2.setColor(new Color(200, 230, 255)); // 내가 보낸 메시지
+                switch (type) {
+                    case "MAFIA":
+                        bubbleColor = new Color(255, 150, 150);
+                        break;
+                    case "DEAD":
+                        bubbleColor = new Color(220, 220, 220);
+                        break;
+                    default:
+                        bubbleColor = new Color(200, 230, 255);
+                        break;
+                }
             } else {
-                g2.setColor(Color.WHITE); // 상대방 메시지
+                switch (type) {
+                    case "MAFIA":
+                        bubbleColor = new Color(255, 200, 200);
+                        break;
+                    case "DEAD":
+                        bubbleColor = new Color(240, 240, 240);
+                        break;
+                    default:
+                        bubbleColor = Color.WHITE;
+                        break;
+                }
             }
+            g2.setColor(bubbleColor);
 
             Shape bubble;
 
@@ -411,112 +597,93 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // [수정] 내부 클래스: ChatMessagePanel
     class ChatMessagePanel extends JPanel {
 
-        private static final ImageIcon DEFAULT_ICON = loadDefaultIcon();
+        private static final ImageIcon Unknown_ICON = loadUnknownIcon();
 
-        private static ImageIcon loadDefaultIcon() {
+        private static ImageIcon loadUnknownIcon() {
             try {
-                java.net.URL imageUrl = GamePanel.class.getResource("/default.png");
+                java.net.URL imageUrl = GamePanel.class.getResource("/unknown.png");
                 if (imageUrl != null) {
                     Image img = ImageIO.read(imageUrl).getScaledInstance(40, 40, Image.SCALE_SMOOTH);
                     return new ImageIcon(img);
                 }
             } catch (IOException e) {
-                System.err.println("기본 프로필 이미지 로드 실패: /default.png");
+                System.err.println("기본 프로필 이미지 로드 실패: /unknown.png");
             }
-            // 로드 실패 시 대체 아이콘 (빈 이미지) 반환
             return new ImageIcon(new BufferedImage(40, 40, BufferedImage.TYPE_INT_ARGB));
         }
 
-        public ChatMessagePanel(String sender, String message, boolean isMyMessage) {
-            // [수정] 레이아웃을 FlowLayout으로 변경하여 내용물에 따라 좌우로 밀착되도록 강제
+        public ChatMessagePanel(String sender, String message, boolean isMyMessage, String type) {
             setLayout(new FlowLayout(isMyMessage ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0));
             setOpaque(false);
-            setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0)); // 전체 패널의 좌우 여백 제거
+            setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 
-            // 1. 전체 메시지 컨테이너 (닉네임 + 말풍선)
             JPanel messageBubbleContainer = new JPanel();
             messageBubbleContainer.setOpaque(false);
-            // 수직으로 닉네임과 말풍선을 배치
             messageBubbleContainer.setLayout(new BoxLayout(messageBubbleContainer, BoxLayout.Y_AXIS));
 
-            // 2. 프로필 이미지
-            JLabel profileLabel = new JLabel(DEFAULT_ICON);
+            JLabel profileLabel = new JLabel(Unknown_ICON);
             profileLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
-            profileLabel.setAlignmentY(Component.BOTTOM_ALIGNMENT); // 프로필을 하단에 정렬
+            profileLabel.setAlignmentY(Component.BOTTOM_ALIGNMENT);
 
-            // 3. 닉네임 라벨 (상단)
             JLabel senderLabel = new JLabel(sender);
             senderLabel.setFont(new Font("맑은 고딕", Font.BOLD, 10));
             senderLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 2, 5));
             senderLabel.setAlignmentX(isMyMessage ? Component.RIGHT_ALIGNMENT : Component.LEFT_ALIGNMENT);
 
-            // 4. 메시지 말풍선 패널 (하단)
-            BubblePanel bubblePanel = new BubblePanel(isMyMessage);
+            if ("MAFIA".equals(type)) {
+                senderLabel.setForeground(new Color(150, 0, 0));
+            } else if ("DEAD".equals(type)) {
+                senderLabel.setForeground(Color.GRAY);
+            } else {
+                senderLabel.setForeground(Color.BLACK);
+            }
 
-            // 메시지 내용 라벨
+            BubblePanel bubblePanel = new BubblePanel(isMyMessage, type);
+
             JLabel messageLabel = new JLabel("<html>" + message + "</html>");
             messageLabel.setFont(new Font("맑은 고딕", Font.PLAIN, 10));
             messageLabel.setForeground(isMyMessage ? Color.BLACK : Color.DARK_GRAY);
             messageLabel.setOpaque(false);
 
             bubblePanel.add(messageLabel);
-
-            // 닉네임과 말풍선 컨테이너에 추가
             messageBubbleContainer.add(senderLabel);
             messageBubbleContainer.add(bubblePanel);
 
-            // 5. FlowLayout에 컴포넌트 추가
             if (isMyMessage) {
-                // 내가 보낸 메시지: [내용물] [프로필]
                 add(messageBubbleContainer);
                 add(profileLabel);
             } else {
-                // 상대방 메시지: [프로필] [내용물]
                 add(profileLabel);
                 add(messageBubbleContainer);
             }
-
-            // [수정] getAlignmentX 오버라이드로 정렬을 강제합니다.
         }
 
-        // [수정] ⚠️ 최종 수정: getAlignmentX 오버라이드
         @Override
         public float getAlignmentX() {
-            // FlowLayout의 정렬 속성을 직접 확인하여 BoxLayout에서 정렬을 강제합니다.
             FlowLayout layout = (FlowLayout) getLayout();
             if (layout.getAlignment() == FlowLayout.RIGHT) {
-                return Component.RIGHT_ALIGNMENT; // 1.0f
+                return Component.RIGHT_ALIGNMENT;
             } else {
-                return Component.LEFT_ALIGNMENT; // 0.0f
+                return Component.LEFT_ALIGNMENT;
             }
         }
 
-        // [수정] getMaximumSize 오버라이드: 강제 최대 너비 설정
         @Override
         public Dimension getMaximumSize() {
             Container parent = getParent();
             if (parent != null && parent.getParent() != null) {
-                // chatScrollPane의 너비(parent.getParent())를 기준으로 최대 너비를 설정
                 int maxChatWidth = (int) (parent.getParent().getWidth() * 0.70);
-                // preferredSize가 계산된 이후에 호출되므로, 정확한 preferredSize를 얻습니다.
                 int preferredWidth = super.getPreferredSize().width;
-
-                // 너비는 maxChatWidth와 preferredWidth 중 작은 값으로, 높이는 유연하게 preferredSize로 설정
                 int finalWidth = Math.min(preferredWidth, maxChatWidth);
 
                 return new Dimension(finalWidth, super.getPreferredSize().height);
             }
-            // 부모가 아직 없거나 크기를 알 수 없을 때는 preferredSize를 사용
             return super.getPreferredSize();
         }
-
-        // [수정] getPreferredSize 오버라이드
         @Override
         public Dimension getPreferredSize() {
-            // FlowLayout을 사용하므로, super.getPreferredSize()를 사용하여 내용물 크기에 따라 정확히 계산됩니다.
             return super.getPreferredSize();
         }
     }

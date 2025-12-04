@@ -4,6 +4,8 @@ import java.io.*;
 import java.net.Socket;
 import java.util.Arrays;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import javax.swing.SwingUtilities;
 
 public class Client {
@@ -26,8 +28,18 @@ public class Client {
 
     private String myNickname = "";
 
+    // ⭐️ [신규] 클라이언트의 플레이어 번호 저장 필드 추가
+    private int myPlayerNumber = 0;
+
     private boolean isHost = false;
     private boolean isReady = false;
+
+    // ⭐️ [신규] 밤 능력 대상 마크 (P1, P2 등)
+    private volatile String markedPlayer = "";
+
+    // ⭐️ [신규] 조사된 역할 정보 저장 (Key: P1, Value: MAFIA/CITIZEN)
+    private Map<String, String> investigatedRoles = new HashMap<>();
+
 
     public Client() {
         frame = new JFrame("마피아 게임 클라이언트");
@@ -50,6 +62,7 @@ public class Client {
 
         this.isHost = false;
         this.isReady = false;
+        this.investigatedRoles.clear();
 
         try {
             socket = new Socket(host, port);
@@ -79,6 +92,15 @@ public class Client {
                 System.out.println("[SERVER] " + msg);
 
                 SwingUtilities.invokeLater(() -> {
+
+                    // 0. PLAYER_NUM: (접속 시 자신의 번호 수신)
+                    if (msg.startsWith("PLAYER_NUM:")) {
+                        try {
+                            this.myPlayerNumber = Integer.parseInt(msg.substring(11).trim());
+                        } catch (NumberFormatException ignored) {}
+                        return;
+                    }
+
                     // 1. TIMER: (프로토콜 메시지)
                     if (msg.startsWith("TIMER:")) {
                         String[] parts = msg.substring(6).split(":");
@@ -98,6 +120,7 @@ public class Client {
                             waitingGamePanel.updatePlayerList(players);
                         } else {
                             gamePanel.updatePlayerList(players);
+                            gamePanel.updatePlayerMarks();
                         }
                         return;
                     }
@@ -105,24 +128,21 @@ public class Client {
                     // 3. START_GAME:
                     else if (msg.startsWith("START_GAME")) {
                         inGame = true;
+                        markedPlayer = "";
+                        investigatedRoles.clear();
                         showGamePanel();
-                        // [수정] appendChatMessage 인자 수정
                         gamePanel.appendChatMessage("시스템", "게임이 시작되었습니다.", false);
                         return;
                     }
 
-                    // 4. ROLE:
+                    // 4. ROLE: (현재 사용되지 않는 레거시 메시지)
                     else if (msg.startsWith("ROLE:")) {
-                        myRole = msg.substring(5);
-                        // [수정] appendChatMessage 인자 수정
-                        gamePanel.appendChatMessage("시스템", "[역할] 당신은 '" + myRole + "' 입니다.", false);
                         return;
                     }
 
                     // 5. YOU_DIED:
                     else if (msg.equals("YOU_DIED")) {
                         isAlive = false;
-                        // [수정] appendChatMessage 인자 수정
                         gamePanel.appendChatMessage("시스템", "⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.", false);
                         return;
                     }
@@ -130,11 +150,9 @@ public class Client {
                     // 6. GAME_OVER:
                     else if (msg.startsWith("GAME_OVER")) {
                         String content = msg.substring("GAME_OVER".length()).trim();
-                        // [수정] appendChatMessage 인자 수정
                         gamePanel.appendChatMessage("시스템", "[게임 종료] " + content, false);
                         JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + content);
 
-                        // [수정] resetToLobby()를 호출하여 로비로 돌아가는 모든 로직을 처리합니다.
                         resetToLobby();
                         return;
                     }
@@ -154,34 +172,75 @@ public class Client {
                             waitingGamePanel.updateButtons(false, false);
                         }
 
+                        // 역할 배정 메시지 처리
+                        else if (systemMsg.startsWith("[역할] 당신은 '")) {
+                            int start = systemMsg.indexOf("'") + 1;
+                            int end = systemMsg.lastIndexOf("'");
+                            if (start > 0 && end > start) {
+                                myRole = systemMsg.substring(start, end).toUpperCase();
+                                gamePanel.updateMyRoleDisplay(myRole);
+                            }
+                        }
+
                         if (!inGame) {
                             waitingGamePanel.appendChatMessage(systemMsg);
                         } else {
-                            // [수정] appendChatMessage 인자 수정
                             gamePanel.appendChatMessage("시스템", systemMsg, false);
+                            gamePanel.updatePlayerMarks();
                         }
                         return;
                     }
 
-                    // 8. 채팅 메시지 처리 (서버가 보내는 CHAT:닉네임:내용 형식)
-                    else if (msg.startsWith("CHAT:")) {
-                        String chatContent = msg.substring("CHAT:".length()).trim();
-                        int colonIndex = chatContent.indexOf(':');
+                    // 8. 채팅 메시지 처리 (서버가 보내는 CHAT_DEAD:, CHAT_MAFIA:, CHAT: 형식)
+                    else if (msg.startsWith("CHAT:") || msg.startsWith("CHAT_MAFIA:") || msg.startsWith("CHAT_DEAD:")) {
+
+                        String chatType = "NORMAL";
+                        String content;
+
+                        if (msg.startsWith("CHAT_MAFIA:")) {
+                            chatType = "MAFIA";
+                            content = msg.substring("CHAT_MAFIA:".length()).trim();
+                        } else if (msg.startsWith("CHAT_DEAD:")) {
+                            chatType = "DEAD";
+                            content = msg.substring("CHAT_DEAD:".length()).trim();
+                        } else { // CHAT:
+                            content = msg.substring("CHAT:".length()).trim();
+                        }
+
+                        int colonIndex = content.indexOf(':');
 
                         if (colonIndex > 0) {
-                            String sender = chatContent.substring(0, colonIndex).trim();
-                            String message = chatContent.substring(colonIndex + 1).trim();
+                            String sender = content.substring(0, colonIndex).trim();
+                            String message = content.substring(colonIndex + 1).trim();
 
-                            boolean isMyMessage = sender.equals(myNickname); // [수정] 내가 보낸 메시지인지 확인
+                            boolean isMyMessage = sender.equals(myNickname);
 
                             if (!inGame) {
                                 waitingGamePanel.appendChatMessage(message);
                             } else {
-                                // [수정] appendChatMessage 인자 수정
-                                gamePanel.appendChatMessage(sender, message, isMyMessage);
+                                gamePanel.appendChatMessage(sender, message, isMyMessage, chatType);
                             }
                         } else {
                             handleGeneralMessage(msg);
+                        }
+                        return;
+                    }
+
+                    // 밤 능력 대상 마크 (MAFIA, DOCTOR 대상 지목 시)
+                    else if (msg.startsWith("MARK_TARGET:")) {
+                        markedPlayer = msg.substring("MARK_TARGET:".length()).trim();
+                        gamePanel.updatePlayerMarks();
+                        return;
+                    }
+
+                    // 경찰 조사 결과 마크 (POLICE 조사 성공 시)
+                    else if (msg.startsWith("MARK_ROLE:")) {
+                        String data = msg.substring("MARK_ROLE:".length());
+                        String[] parts = data.split(":");
+
+                        if (parts.length == 2) {
+                            investigatedRoles.put(parts[0], parts[1]);
+                            gamePanel.updatePlayerMarks();
                         }
                         return;
                     }
@@ -200,7 +259,6 @@ public class Client {
             SwingUtilities.invokeLater(() -> {
                 JOptionPane.showMessageDialog(frame, "서버 연결이 끊겼습니다.");
 
-                // [수정] 연결 끊김 시에도 방장 상태를 유지한 채 로비로 돌아가도록 resetToLobby() 호출
                 resetToLobby();
             });
         }
@@ -210,7 +268,6 @@ public class Client {
         if (!inGame) {
             waitingGamePanel.appendChatMessage(msg);
         } else {
-            // [수정] appendChatMessage 인자 수정
             gamePanel.appendChatMessage("시스템", msg, false);
         }
     }
@@ -244,35 +301,41 @@ public class Client {
             out.println(msg);
 
         } else {
-            // [수정] 1. 사망자 처리 (사망자 채팅은 언제나 가능하며, role 검사 없이 통과)
+            String chatPrefix;
+
             if (!isAlive) {
-                out.println("CHAT:" + myNickname + ":" + msg);
-
-                if (!inGame) {
-                    waitingGamePanel.appendChatMessage(msg);
-                } else {
-                    // [수정] appendChatMessage 인자 수정
-                    gamePanel.appendChatMessage(myNickname, msg, true);
-                }
-                return;
+                chatPrefix = "CHAT_DEAD:";
             }
-
-            // [수정] 2. 생존자 밤 채팅 통제
-            if (inGame && gamePanel.getCurrentPhase().equals("NIGHT")) {
-                if (!myRole.equals("MAFIA")) {
-                    JOptionPane.showMessageDialog(frame, "밤에는 마피아만 대화 가능합니다.", "경고", JOptionPane.WARNING_MESSAGE);
+            else if (inGame && gamePanel.getCurrentPhase().equals("NIGHT")) {
+                if ("MAFIA".equals(myRole)) {
+                    chatPrefix = "CHAT_MAFIA:";
+                } else {
+                    gamePanel.appendChatMessage("시스템", "경고: 밤에는 마피아만 대화 가능합니다.", false);
                     return;
                 }
             }
+            else {
+                chatPrefix = "CHAT:";
+            }
 
-            // [수정] 3. 생존자 채팅 전송 및 즉시 화면 표시
-            out.println("CHAT:" + myNickname + ":" + msg);
+
+            String fullMessage = chatPrefix + myNickname + ":" + msg;
+            out.println(fullMessage);
+
+
+            String localType;
+            if (chatPrefix.equals("CHAT_DEAD:")) {
+                localType = "DEAD";
+            } else if (chatPrefix.equals("CHAT_MAFIA:")) {
+                localType = "MAFIA";
+            } else {
+                localType = "NORMAL";
+            }
 
             if (!inGame) {
                 waitingGamePanel.appendChatMessage(msg);
             } else {
-                // [수정] appendChatMessage 인자 수정
-                gamePanel.appendChatMessage(myNickname, msg, true);
+                gamePanel.appendChatMessage(myNickname, msg, true, localType);
             }
         }
     }
@@ -293,29 +356,23 @@ public class Client {
     }
 
     private void resetToLobby() {
-        // ⭐️ [수정] 현재 isHost 상태를 저장하고, isReady 상태만 변경합니다.
         boolean wasHost = this.isHost;
 
         inGame = false;
         isAlive = true;
         myRole = "";
+        markedPlayer = "";
+        investigatedRoles.clear();
+        this.myPlayerNumber = 0; // 초기화
 
-        // isHost는 그대로 두고, isReady만 방장이었으면 true로, 아니면 false로 초기화
         this.isReady = wasHost;
-
-        // Note: this.isHost = false; 로직은 제거되어 방장 권한이 유지됩니다.
 
         SwingUtilities.invokeLater(() -> {
             gamePanel.clearGameState();
+            gamePanel.updateMyRoleDisplay("UNKNOWN");
 
             showWaitingPanel();
-
-            // [수정] 게임 종료 후 패널 내용 초기화 (WaitingGamePanel에 clearDisplay()가 있다고 가정)
-            // waitingGamePanel.clearPlayerList(); // <- 이 대신
             waitingGamePanel.clearDisplay();
-
-            // ⭐️ [수정] 저장된 wasHost 상태를 기반으로 버튼을 업데이트합니다.
-            // 방장이었으면 '게임 시작' 버튼이 보이게 됩니다.
             waitingGamePanel.updateButtons(wasHost, this.isReady);
         });
     }
@@ -327,6 +384,27 @@ public class Client {
     public boolean isAlive() {
         return isAlive;
     }
+
+    // ⭐️ [필수] GamePanel에서 자신의 플레이어 번호를 조회하기 위한 Getter
+    public int getMyPlayerNumber() {
+        return myPlayerNumber;
+    }
+
+    // GamePanel이 마크 정보를 조회할 수 있는 Getter
+    public String getMarkedPlayer() {
+        return markedPlayer;
+    }
+
+    // GamePanel이 조사된 역할 정보를 조회할 수 있는 Getter
+    public Map<String, String> getInvestigatedRoles() {
+        return investigatedRoles;
+    }
+
+    // GamePanel이 자신의 역할을 조회할 수 있는 Getter
+    public String getMyRole() {
+        return myRole;
+    }
+
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(Client::new);
