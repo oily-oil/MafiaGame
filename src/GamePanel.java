@@ -33,7 +33,6 @@ public class GamePanel extends JPanel {
     private static final int PROFILE_ICON_SIZE = 50;
     private static final int ROLE_ICON_SIZE = 40;
 
-    // [수정] loadProfileImage: 버튼 선택/마크 이미지 로드 로직 제거됨
     private BufferedImage loadProfileImage(String playerInfo) {
         String playerNumber = extractPlayerNumber(playerInfo);
         String imageName = "unknown.png";
@@ -75,8 +74,24 @@ public class GamePanel extends JPanel {
         return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
     }
 
-    // [제거] loadMarkImage 함수는 필요 없지만, 하위 클래스에서 사용될 수 있으므로 임시로 남겨두거나 삭제해야 합니다.
-    // 여기서는 사용하지 않도록 처리하고, loadProfileImage를 기본으로 사용합니다.
+    private BufferedImage loadMarkImage(String imageName) {
+        String path = "/" + imageName;
+        try {
+            java.net.URL imageUrl = getClass().getResource(path);
+            if (imageUrl != null) {
+                BufferedImage original = ImageIO.read(imageUrl);
+                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2d = scaled.createGraphics();
+                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
+                g2d.dispose();
+                return scaled;
+            }
+        } catch (IOException e) {
+            System.err.println("경고: 마크 이미지 에셋을 찾을 수 없습니다: " + path);
+        }
+        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+    }
 
     public ImageIcon loadRoleIcon(String role) {
         String imagePath = "/" + role.toLowerCase() + ".png";
@@ -189,7 +204,7 @@ public class GamePanel extends JPanel {
 
         voteButton.addActionListener(e -> {
             if (selectedPlayer != null) {
-                String playerNumber = extractPlayerNumber(selectedPlayer);
+                String playerNumber = client.extractPlayerNumber(selectedPlayer);
                 client.sendMessage("/vote " + playerNumber);
                 appendChatMessage("시스템", "[투표] P" + playerNumber + " 에게 투표했습니다.", false);
             } else {
@@ -199,7 +214,7 @@ public class GamePanel extends JPanel {
 
         skillButton.addActionListener(e -> {
             if (selectedPlayer != null) {
-                String playerNumber = extractPlayerNumber(selectedPlayer);
+                String playerNumber = client.extractPlayerNumber(selectedPlayer);
                 String command = "/skill " + playerNumber;
 
                 client.sendMessage(command);
@@ -209,7 +224,6 @@ public class GamePanel extends JPanel {
         });
     }
 
-    // ⭐️ [수정] updateButtonIcon: isSelected 인자 제거, 버튼 선택 시 이미지 변경 로직 삭제
     private void updateButtonIcon(JButton btn, String playerInfo) {
         BufferedImage baseImage = loadProfileImage(playerInfo);
 
@@ -218,11 +232,9 @@ public class GamePanel extends JPanel {
 
         String playerNumber = extractPlayerNumber(playerInfo);
 
-        // 버튼 선택 여부와 관계없이 마크 오버레이는 적용
         Image finalImage = applyMarkAndRole(baseImage, playerNumber);
         btn.setIcon(new ImageIcon(finalImage));
 
-        // ⭐️ [신규] 버튼이 현재 selectedPlayer와 일치하면 배경색을 변경
         String currentInfo = (String) btn.getClientProperty("PlayerInfo");
         if (currentInfo != null && currentInfo.equals(selectedPlayer)) {
             btn.setBackground(Color.BLACK);
@@ -233,7 +245,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // [수정] applyMarkAndRole: isSelected 인자 제거 및 로직 간소화
     private Image applyMarkAndRole(BufferedImage baseImage, String playerNumber) {
 
         BufferedImage overlaidImage = new BufferedImage(
@@ -245,7 +256,6 @@ public class GamePanel extends JPanel {
 
         String markedPlayer = client.getMarkedPlayer();
 
-        // 밤 능력 대상 마크 적용
         if (markedPlayer.equals("P" + playerNumber) && currentPhase.equals("NIGHT")) {
             String targetPath = "/mark_target.png";
             try {
@@ -306,6 +316,7 @@ public class GamePanel extends JPanel {
             contentPanel.revalidate();
             contentPanel.repaint();
 
+            // ⭐️ 시스템 메시지 스크롤 로직
             if (chatScrollPane != null) {
                 SwingUtilities.invokeLater(() -> {
                     JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
@@ -334,6 +345,7 @@ public class GamePanel extends JPanel {
 
                 contentPanel.revalidate();
 
+                // ⭐️ 일반 메시지 스크롤 로직 (크기 확정 후 스크롤)
                 if (chatScrollPane != null) {
                     JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
                     vertical.setValue(vertical.getMaximum());
@@ -351,7 +363,6 @@ public class GamePanel extends JPanel {
             String playerInfo = (String) btn.getClientProperty("PlayerInfo");
 
             if (playerInfo != null) {
-                // ⭐️ [수정] updateButtonIcon 호출 시 isSelected 인자 제거
                 updateButtonIcon(btn, playerInfo);
             }
         }
@@ -381,7 +392,6 @@ public class GamePanel extends JPanel {
             btn.putClientProperty("PlayerInfo", p);
             btn.setToolTipText(p);
 
-            // ⭐️ [수정] updateButtonIcon 호출 시 isSelected 인자 제거
             updateButtonIcon(btn, p);
 
             btn.setFocusable(false);
@@ -421,11 +431,9 @@ public class GamePanel extends JPanel {
     }
 
     private void highlightSelectedButton(JButton selected) {
-        // 모든 버튼을 원래 상태(배경색 없음)로 복원하고 아이콘을 재할당
         for (JButton btn : playerButtons) {
             String playerInfo = (String) btn.getClientProperty("PlayerInfo");
 
-            // ⭐️ [수정] 아이콘과 배경색을 초기 상태로 되돌림
             updateButtonIcon(btn, playerInfo);
 
             btn.setBackground(null);
@@ -433,11 +441,8 @@ public class GamePanel extends JPanel {
         }
 
         if (selectedPlayer != null) {
-            // 새로 선택된 버튼을 검은색으로 변경
             selected.setBackground(Color.BLACK);
             selected.setForeground(Color.WHITE);
-
-            // 아이콘은 updateButtonIcon에서 처리했으므로 이미지 관련 로직은 제거
         }
     }
 
@@ -447,6 +452,7 @@ public class GamePanel extends JPanel {
 
         boolean isAbilityUser = client.hasAbility();
         boolean isClientAlive = client.isAlive();
+        String myRole = client.getMyRole();
 
 
         if (!isClientAlive) {
@@ -456,8 +462,12 @@ public class GamePanel extends JPanel {
             voteButton.setEnabled(false);
             skillButton.setEnabled(false);
             phaseText = "사망 (관전자 모드)";
+            playerButtonPanel.setEnabled(false);
+            for(JButton btn : playerButtons) btn.setEnabled(false);
         } else {
             inputField.setEnabled(true);
+            playerButtonPanel.setEnabled(true);
+            for(JButton btn : playerButtons) btn.setEnabled(true);
 
             switch (phase) {
                 case "WAITING":
@@ -474,15 +484,40 @@ public class GamePanel extends JPanel {
                     phaseText = "밤 (능력 사용)";
                     voteButton.setVisible(false);
                     skillButton.setVisible(isAbilityUser);
+
+                    if ("CITIZEN".equals(myRole)) {
+                        inputField.setEnabled(false);
+                        voteButton.setEnabled(false);
+                        skillButton.setEnabled(false);
+                        playerButtonPanel.setEnabled(false);
+                        for(JButton btn : playerButtons) btn.setEnabled(false);
+                    } else if (isAbilityUser) {
+                        inputField.setEnabled("MAFIA".equals(myRole));
+                        skillButton.setEnabled(true);
+                        playerButtonPanel.setEnabled(true);
+                        for(JButton btn : playerButtons) btn.setEnabled(true);
+                    } else {
+                        inputField.setEnabled(false);
+                        playerButtonPanel.setEnabled(false);
+                        for(JButton btn : playerButtons) btn.setEnabled(false);
+                    }
+
                     break;
                 default:
                     phaseText = "정보 없음";
                     voteButton.setVisible(false);
                     skillButton.setVisible(false);
+                    playerButtonPanel.setEnabled(true);
+                    for(JButton btn : playerButtons) btn.setEnabled(true);
             }
 
-            voteButton.setEnabled(true);
-            skillButton.setEnabled(true);
+            if (phase.equals("DAY") && isClientAlive) {
+                inputField.setEnabled(true);
+                voteButton.setEnabled(true);
+                skillButton.setEnabled(true);
+                playerButtonPanel.setEnabled(true);
+                for(JButton btn : playerButtons) btn.setEnabled(true);
+            }
         }
 
         int minutes = secondsLeft / 60;

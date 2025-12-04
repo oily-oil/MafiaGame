@@ -35,6 +35,8 @@ public class Client {
 
     private volatile String markedPlayer = "";
 
+    // [제거] private volatile String mafiaSelectedPlayer = "";
+
     private Map<String, String> investigatedRoles = new HashMap<>();
 
 
@@ -230,11 +232,8 @@ public class Client {
                         return;
                     }
 
-                    // ⭐️ [수정] 경찰 조사 결과 마크 (POLICE 클라이언트만 정보 저장)
+                    // 경찰 조사 결과 마크 (POLICE 클라이언트만 정보 저장)
                     else if (msg.startsWith("MARK_ROLE:")) {
-                        // 서버는 모든 클라이언트에게 이 메시지를 보내지만...
-
-                        // ⭐️ 나의 역할이 경찰인 경우에만 조사 결과를 저장하고 UI 업데이트!
                         if ("POLICE".equals(myRole)) {
                             String data = msg.substring("MARK_ROLE:".length());
                             String[] parts = data.split(":");
@@ -244,9 +243,11 @@ public class Client {
                                 gamePanel.updatePlayerMarks();
                             }
                         }
-                        // 경찰이 아니면 아무 것도 하지 않음 (조사 결과는 경찰에게만 유효)
                         return;
                     }
+
+                    // [제거] MAFIA_SELECT 핸들러 제거
+
 
                     // 9. 기타 메시지(Fallback)
                     else {
@@ -343,6 +344,8 @@ public class Client {
         }
     }
 
+    // [제거] public void sendMafiaSelectionState(String playerID) {} 메서드 제거
+
     // ---------------- GUI 전환 유틸 ----------------
     public void showWaitingPanel() {
         frame.getContentPane().removeAll();
@@ -365,6 +368,7 @@ public class Client {
         isAlive = true;
         myRole = "";
         markedPlayer = "";
+        // [수정] mafiaSelectedPlayer 필드 제거에 따른 초기화 로직 제거
         investigatedRoles.clear();
         this.myPlayerNumber = 0;
 
@@ -396,12 +400,28 @@ public class Client {
         return markedPlayer;
     }
 
+    // [제거] public String getMafiaSelectedPlayer() {} 메서드 제거
+
     public Map<String, String> getInvestigatedRoles() {
         return investigatedRoles;
     }
 
     public String getMyRole() {
         return myRole;
+    }
+
+    public String extractPlayerNumber(String playerString) {
+        try {
+            if (playerString.startsWith("P")) {
+                int dashIndex = playerString.indexOf(" -");
+                if (dashIndex != -1) {
+                    return playerString.substring(1, dashIndex);
+                }
+            }
+            return "";
+        } catch (Exception e) {
+            return "";
+        }
     }
 
 
