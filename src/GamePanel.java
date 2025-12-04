@@ -33,23 +33,20 @@ public class GamePanel extends JPanel {
     private static final int PROFILE_ICON_SIZE = 50;
     private static final int ROLE_ICON_SIZE = 40;
 
+    // [수정] loadProfileImage: 버튼 선택/마크 이미지 로드 로직 제거됨
     private BufferedImage loadProfileImage(String playerInfo) {
         String playerNumber = extractPlayerNumber(playerInfo);
         String imageName = "unknown.png";
 
-        // 1. 조사된 역할 확인 (Client로부터 가져옴)
         String investigatedRole = client.getInvestigatedRoles().get("P" + playerNumber);
 
-        // 2. 조사된 역할에 따라 이미지 이름 결정
         if (investigatedRole != null) {
-            // 경찰 조사를 통해 역할이 확정된 경우
             if (investigatedRole.equals("MAFIA")) {
                 imageName = "mafia.png";
-            } else { // CITIZEN 또는 DOCTOR, POLICE가 조사 결과로 넘어올 경우 모두 시민팀으로 처리
+            } else {
                 imageName = "citizen.png";
             }
         }
-        // 3. 조사되지 않았거나 게임 전일 경우, 본인 확인
         else {
             String myRole = client.getMyRole();
             String myPlayerInfo = "P" + client.getMyPlayerNumber() + " -";
@@ -78,24 +75,8 @@ public class GamePanel extends JPanel {
         return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
     }
 
-    private BufferedImage loadMarkImage(String imageName) {
-        String path = "/" + imageName;
-        try {
-            java.net.URL imageUrl = getClass().getResource(path);
-            if (imageUrl != null) {
-                BufferedImage original = ImageIO.read(imageUrl);
-                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g2d = scaled.createGraphics();
-                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
-                g2d.dispose();
-                return scaled;
-            }
-        } catch (IOException e) {
-            System.err.println("경고: 마크 이미지 에셋을 찾을 수 없습니다: " + path);
-        }
-        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
-    }
+    // [제거] loadMarkImage 함수는 필요 없지만, 하위 클래스에서 사용될 수 있으므로 임시로 남겨두거나 삭제해야 합니다.
+    // 여기서는 사용하지 않도록 처리하고, loadProfileImage를 기본으로 사용합니다.
 
     public ImageIcon loadRoleIcon(String role) {
         String imagePath = "/" + role.toLowerCase() + ".png";
@@ -228,30 +209,32 @@ public class GamePanel extends JPanel {
         });
     }
 
-    private void updateButtonIcon(JButton btn, String playerInfo, boolean isSelected) {
-        BufferedImage baseImage;
-
-        if (isSelected) {
-            baseImage = loadMarkImage("mark.png");
-        } else {
-            baseImage = loadProfileImage(playerInfo);
-        }
+    // ⭐️ [수정] updateButtonIcon: isSelected 인자 제거, 버튼 선택 시 이미지 변경 로직 삭제
+    private void updateButtonIcon(JButton btn, String playerInfo) {
+        BufferedImage baseImage = loadProfileImage(playerInfo);
 
         btn.setText(null);
         btn.setPreferredSize(new Dimension(PROFILE_ICON_SIZE + 20, PROFILE_ICON_SIZE + 20));
 
         String playerNumber = extractPlayerNumber(playerInfo);
 
-        Image finalImage = applyMarkAndRole(baseImage, playerNumber, isSelected);
+        // 버튼 선택 여부와 관계없이 마크 오버레이는 적용
+        Image finalImage = applyMarkAndRole(baseImage, playerNumber);
         btn.setIcon(new ImageIcon(finalImage));
+
+        // ⭐️ [신규] 버튼이 현재 selectedPlayer와 일치하면 배경색을 변경
+        String currentInfo = (String) btn.getClientProperty("PlayerInfo");
+        if (currentInfo != null && currentInfo.equals(selectedPlayer)) {
+            btn.setBackground(Color.BLACK);
+            btn.setForeground(Color.WHITE);
+        } else {
+            btn.setBackground(null);
+            btn.setForeground(Color.BLACK);
+        }
     }
 
-    // [수정] applyMarkAndRole: 조사 결과 마크 로직 제거
-    private Image applyMarkAndRole(BufferedImage baseImage, String playerNumber, boolean isSelected) {
-
-        if (isSelected) {
-            return baseImage;
-        }
+    // [수정] applyMarkAndRole: isSelected 인자 제거 및 로직 간소화
+    private Image applyMarkAndRole(BufferedImage baseImage, String playerNumber) {
 
         BufferedImage overlaidImage = new BufferedImage(
                 baseImage.getWidth(), baseImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
@@ -367,10 +350,9 @@ public class GamePanel extends JPanel {
         for (JButton btn : playerButtons) {
             String playerInfo = (String) btn.getClientProperty("PlayerInfo");
 
-            boolean isSelected = playerInfo != null && playerInfo.equals(selectedPlayer);
-
             if (playerInfo != null) {
-                updateButtonIcon(btn, playerInfo, isSelected);
+                // ⭐️ [수정] updateButtonIcon 호출 시 isSelected 인자 제거
+                updateButtonIcon(btn, playerInfo);
             }
         }
         playerButtonPanel.revalidate();
@@ -399,7 +381,8 @@ public class GamePanel extends JPanel {
             btn.putClientProperty("PlayerInfo", p);
             btn.setToolTipText(p);
 
-            updateButtonIcon(btn, p, false);
+            // ⭐️ [수정] updateButtonIcon 호출 시 isSelected 인자 제거
+            updateButtonIcon(btn, p);
 
             btn.setFocusable(false);
 
@@ -438,20 +421,23 @@ public class GamePanel extends JPanel {
     }
 
     private void highlightSelectedButton(JButton selected) {
+        // 모든 버튼을 원래 상태(배경색 없음)로 복원하고 아이콘을 재할당
         for (JButton btn : playerButtons) {
             String playerInfo = (String) btn.getClientProperty("PlayerInfo");
 
-            updateButtonIcon(btn, playerInfo, false);
+            // ⭐️ [수정] 아이콘과 배경색을 초기 상태로 되돌림
+            updateButtonIcon(btn, playerInfo);
 
             btn.setBackground(null);
             btn.setForeground(Color.BLACK);
         }
 
         if (selectedPlayer != null) {
-            updateButtonIcon(selected, selectedPlayer, true);
-
-            selected.setBackground(Color.DARK_GRAY);
+            // 새로 선택된 버튼을 검은색으로 변경
+            selected.setBackground(Color.BLACK);
             selected.setForeground(Color.WHITE);
+
+            // 아이콘은 updateButtonIcon에서 처리했으므로 이미지 관련 로직은 제거
         }
     }
 

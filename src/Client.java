@@ -28,16 +28,13 @@ public class Client {
 
     private String myNickname = "";
 
-    // ⭐️ [신규] 클라이언트의 플레이어 번호 저장 필드 추가
     private int myPlayerNumber = 0;
 
     private boolean isHost = false;
     private boolean isReady = false;
 
-    // ⭐️ [신규] 밤 능력 대상 마크 (P1, P2 등)
     private volatile String markedPlayer = "";
 
-    // ⭐️ [신규] 조사된 역할 정보 저장 (Key: P1, Value: MAFIA/CITIZEN)
     private Map<String, String> investigatedRoles = new HashMap<>();
 
 
@@ -233,15 +230,21 @@ public class Client {
                         return;
                     }
 
-                    // 경찰 조사 결과 마크 (POLICE 조사 성공 시)
+                    // ⭐️ [수정] 경찰 조사 결과 마크 (POLICE 클라이언트만 정보 저장)
                     else if (msg.startsWith("MARK_ROLE:")) {
-                        String data = msg.substring("MARK_ROLE:".length());
-                        String[] parts = data.split(":");
+                        // 서버는 모든 클라이언트에게 이 메시지를 보내지만...
 
-                        if (parts.length == 2) {
-                            investigatedRoles.put(parts[0], parts[1]);
-                            gamePanel.updatePlayerMarks();
+                        // ⭐️ 나의 역할이 경찰인 경우에만 조사 결과를 저장하고 UI 업데이트!
+                        if ("POLICE".equals(myRole)) {
+                            String data = msg.substring("MARK_ROLE:".length());
+                            String[] parts = data.split(":");
+
+                            if (parts.length == 2) {
+                                investigatedRoles.put(parts[0], parts[1]);
+                                gamePanel.updatePlayerMarks();
+                            }
                         }
+                        // 경찰이 아니면 아무 것도 하지 않음 (조사 결과는 경찰에게만 유효)
                         return;
                     }
 
@@ -363,7 +366,7 @@ public class Client {
         myRole = "";
         markedPlayer = "";
         investigatedRoles.clear();
-        this.myPlayerNumber = 0; // 초기화
+        this.myPlayerNumber = 0;
 
         this.isReady = wasHost;
 
@@ -385,22 +388,18 @@ public class Client {
         return isAlive;
     }
 
-    // ⭐️ [필수] GamePanel에서 자신의 플레이어 번호를 조회하기 위한 Getter
     public int getMyPlayerNumber() {
         return myPlayerNumber;
     }
 
-    // GamePanel이 마크 정보를 조회할 수 있는 Getter
     public String getMarkedPlayer() {
         return markedPlayer;
     }
 
-    // GamePanel이 조사된 역할 정보를 조회할 수 있는 Getter
     public Map<String, String> getInvestigatedRoles() {
         return investigatedRoles;
     }
 
-    // GamePanel이 자신의 역할을 조회할 수 있는 Getter
     public String getMyRole() {
         return myRole;
     }
