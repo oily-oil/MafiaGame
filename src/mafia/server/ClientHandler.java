@@ -1,8 +1,13 @@
 package mafia.server;
 
+import mafia.Enum.GamePhase;
+import mafia.Enum.MessageType;
+import mafia.Enum.PlayerStatus;
+import mafia.Enum.Role;
+import mafia.server.protocol.Message;
+import mafia.server.protocol.MessageCodec;
 import mafia.server.room.GameRoom;
 import mafia.server.room.PlayerSession;
-import mafia.Enum.PlayerStatus;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -11,29 +16,38 @@ import java.io.PrintWriter;
 import java.net.Socket;
 
 /**
- * 한 클라이언트 소켓을 담당하는 네트워크 레이어.
- * 문자열 프로토콜을 파싱해서 mafia.server.room.GameRoom 도메인에 위임.
+ * 클라이언트별 소켓 연결 담당.
+ *  - 접속 직후 NICKNAME: 을 받고 GameServer에 등록
+ *  - 이후 들어오는 모든 문자열을 MessageCodec.parseClientToServer 로 해석
+ *  - 해석된 MessageType 에 따라 GameRoom / GameServer 로 위임
  */
 public class ClientHandler implements Runnable {
 
-    private final Socket socket;
     private final GameServer server;
+    private final Socket socket;
+
     private PrintWriter out;
     private BufferedReader in;
 
     private PlayerSession session;
+    private GameRoom room;
 
-    public ClientHandler(Socket socket, GameServer server) {
-        this.socket = socket;
+    public ClientHandler(GameServer server, Socket socket) {
         this.server = server;
+        this.socket = socket;
+    }
+
+    public void setRoomAndSession(GameRoom room, PlayerSession session) {
+        this.room = room;
+        this.session = session;
+    }
+
+    public GameRoom getRoom() {
+        return room;
     }
 
     public PlayerSession getSession() {
         return session;
-    }
-
-    public void setSession(PlayerSession session) {
-        this.session = session;
     }
 
     public void sendMessage(String message) {
@@ -45,81 +59,126 @@ public class ClientHandler implements Runnable {
     @Override
     public void run() {
         try {
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            in  = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
             out = new PrintWriter(socket.getOutputStream(), true);
 
-            GameRoom room = server.getGameRoom();
-
-            // 1) 첫 메시지로 닉네임 수신 (Client에서 NICKNAME:xxx 를 먼저 보냄)
+            // 1) 최초 닉네임 수신
             String firstLine = in.readLine();
-            String nickname = null;
-            if (firstLine != null && firstLine.startsWith("NICKNAME:")) {
-                nickname = firstLine.substring("NICKNAME:".length()).trim();
-            } else if (firstLine != null && !firstLine.isBlank()) {
-                // 혹시 다른 형식이 오면, 일단 닉네임 없이 그냥 진행하고
-                // 첫 메시지는 아래 루프에서 다시 처리할 수는 없으므로 그냥 로그만 남김
-                System.out.println("경고: 첫 메시지가 NICKNAME: 형식이 아닙니다. message=" + firstLine);
+            if (firstLine == null || !firstLine.startsWith("NICKNAME:")) {
+                sendMessage("SYSTEM:잘못된 접속입니다. (닉네임 없음)");
+                return;
+            }
+            String nickname = firstLine.substring("NICKNAME:".length()).trim();
+            if (nickname.isEmpty()) {
+                nickname = "플레이어";
             }
 
-            // 2) mafia.server.room.PlayerSession 생성 및 mafia.server.room.GameRoom 등록
-            session = room.addPlayer(this, nickname);
+            // 2) 서버에 등록 + 기본 방(Lobby)에 입장
+            session = server.registerNewClient(this, nickname);
+            room = getRoom();
 
-            // 3) 메인 메시지 루프
+            // 3) 메시지 루프
             String line;
             while ((line = in.readLine()) != null) {
-                String msg = line.trim();
-                if (msg.isEmpty()) continue;
+                final String raw = line;
+                Message msg = MessageCodec.parseClientToServer(raw);
+                MessageType type = msg.getType();
 
-                // TIMER 메시지는 클라 → 서버로 올라오지 않지만, 혹시 모를 경우 무시
-                if (msg.startsWith("TIMER:")) {
+                if (type == MessageType.UNKNOWN && raw.trim().isEmpty()) {
+                    continue; // 빈 줄 무시
+                }
+
+                // 사망자는 /ready, 사망자 채팅만 허용
+                if (session.getStatus() == PlayerStatus.DEAD &&
+                        type != MessageType.CMD_READY &&
+                        type != MessageType.CHAT_DEAD) {
+                    sendMessage("SYSTEM:당신은 죽었습니다. 채팅(사망자 채팅) 외의 행동은 할 수 없습니다.");
                     continue;
                 }
 
-                // 죽은 플레이어 제한
-                if (session.getStatus() == PlayerStatus.DEAD
-                        && !msg.startsWith("/ready")
-                        && !msg.startsWith("CHAT_DEAD:")) {
-                    session.send("SYSTEM:당신은 죽었습니다. 채팅 외의 행동은 할 수 없습니다.");
+                // ==== 방/서버 전역 명령 ====
+                if (type == MessageType.CMD_ROOMS) {
+                    server.sendRoomListTo(this);
+                    continue;
+                }
+                if (type == MessageType.CMD_JOIN) {
+                    String roomName = msg.getRoomName();
+                    server.joinRoom(this, roomName != null ? roomName : "");
                     continue;
                 }
 
-                // 명령 처리
-                if (msg.equalsIgnoreCase("/start")) {
-                    System.out.println("P" + session.getPlayerNumber() + "로부터 /start 명령 수신");
-                    room.handleStartGame(session);
-                } else if (msg.equalsIgnoreCase("/ready")) {
-                    System.out.println("P" + session.getPlayerNumber() + "로부터 /ready 명령 수신");
-                    room.handleReady(session);
-                } else if (msg.startsWith("/vote ")) {
-                    String arg = msg.substring(6).trim();
-                    room.handleVote(session, arg);
-                } else if (msg.startsWith("/skill ")) {
-                    String arg = msg.substring(7).trim();
-                    room.handleSkill(session, arg);
+                // ==== 이 아래부터는 반드시 방이 있어야 함 ====
+                if (room == null) {
+                    sendMessage("SYSTEM:어느 방에도 속해있지 않습니다. /join 명령으로 방에 입장하세요.");
+                    continue;
                 }
 
-                // 채팅 처리
-                else if (msg.startsWith("CHAT:") || msg.startsWith("CHAT_MAFIA:") || msg.startsWith("CHAT_DEAD:")) {
-                    room.handleChat(session, msg);
-                }
+                switch (type) {
+                    case CMD_READY:
+                        room.handleReady(session);
+                        break;
 
-                // 그 외
-                else {
-                    session.send("SYSTEM:알 수 없는 명령어입니다.");
+                    case CMD_START:
+                        room.startGame(session);
+                        break;
+
+                    case CMD_VOTE:
+                        if (room.getCurrentPhase() == GamePhase.DAY) {
+                            // GameRoom은 원래 /vote 2 형식의 원본 문자열을 기대하므로 raw 그대로 넘김
+                            room.handleVote(session, msg.getRaw());
+                        } else {
+                            sendMessage("SYSTEM:투표는 낮에만 할 수 있습니다.");
+                        }
+                        break;
+
+                    case CMD_SKILL:
+                        if (room.getCurrentPhase() != GamePhase.NIGHT) {
+                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 있습니다.");
+                            break;
+                        }
+                        Role role = session.getRole();
+                        switch (role) {
+                            case POLICE:
+                                room.handleInvestigate(session, msg.getRaw());
+                                break;
+                            case DOCTOR:
+                                room.handleSave(session, msg.getRaw());
+                                break;
+                            case MAFIA:
+                                room.handleKillCommand(session, msg.getRaw());
+                                break;
+                            case CITIZEN:
+                                sendMessage("SYSTEM:시민은 능력을 사용할 수 없습니다.");
+                                break;
+                            default:
+                                sendMessage("SYSTEM:능력을 사용할 수 없는 상태입니다.");
+                                break;
+                        }
+                        break;
+
+                    case CHAT:
+                    case CHAT_MAFIA:
+                    case CHAT_DEAD:
+                        room.handleChat(session, msg.getRaw());
+                        break;
+
+                    case UNKNOWN:
+                    default:
+                        sendMessage("SYSTEM:알 수 없는 명령어입니다.");
+                        break;
                 }
             }
+
         } catch (IOException e) {
-            System.out.println("P" + (session != null ? session.getPlayerNumber() : -1) + "의 연결이 끊겼습니다 (IOException): " + e.getMessage());
+            System.out.println("[SERVER] 클라이언트 연결 종료 (IOException): " + e.getMessage());
         } catch (Exception e) {
-            System.out.println("P" + (session != null ? session.getPlayerNumber() : -1) + " 처리 중 예상치 못한 오류 발생: " + e.getMessage());
+            System.out.println("[SERVER] 클라이언트 처리 중 오류: " + e.getMessage());
             e.printStackTrace();
         } finally {
+            server.onClientDisconnected(this);
             try {
                 if (socket != null) socket.close();
-            } catch (IOException ignore) {}
-
-            GameRoom room = server.getGameRoom();
-            room.handleDisconnect(session);
+            } catch (IOException ignored) {}
         }
     }
 }

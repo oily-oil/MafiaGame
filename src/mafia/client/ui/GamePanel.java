@@ -49,7 +49,7 @@ public class GamePanel extends JPanel {
             if (imageUrl != null) {
                 backgroundImage = ImageIO.read(imageUrl);
             } else {
-                System.err.println("경고: 클래스 경로에서 /background.png 이미지를 찾을 수 없습니다.");
+                System.err.println("경고: 클래스 경로에서 /Images/background.png 이미지를 찾을 수 없습니다.");
             }
         } catch (IOException e) {
             System.err.println("배경 이미지 로드 중 오류 발생.");
@@ -203,7 +203,7 @@ public class GamePanel extends JPanel {
         if (role == null || role == Role.NONE) {
             return new ImageIcon(new BufferedImage(ROLE_ICON_SIZE, ROLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
         }
-        String imagePath = "/" + role.name().toLowerCase() + ".png";
+        String imagePath = "/Images/" + role.name().toLowerCase() + ".png";
         try {
             java.net.URL imageUrl = getClass().getResource(imagePath);
             if (imageUrl != null) {
@@ -248,7 +248,7 @@ public class GamePanel extends JPanel {
         String markedPlayer = gameState.getMarkedPlayer();
 
         if (markedPlayer.equals("P" + playerNumber) && currentPhase == GamePhase.NIGHT) {
-            String targetPath = "/mark_target.png";
+            String targetPath = "/Images/mark_target.png";
             try {
                 java.net.URL targetUrl = getClass().getResource(targetPath);
                 if (targetUrl != null) {
@@ -617,7 +617,7 @@ public class GamePanel extends JPanel {
                     return new ImageIcon(img);
                 }
             } catch (IOException e) {
-                System.err.println("기본 프로필 이미지 로드 실패: /unknown.png");
+                System.err.println("기본 프로필 이미지 로드 실패: /Images/unknown.png");
             }
             return new ImageIcon(new BufferedImage(40, 40, BufferedImage.TYPE_INT_ARGB));
         }
