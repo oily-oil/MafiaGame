@@ -7,7 +7,7 @@ import java.net.Socket;
 /**
  * 개별 클라이언트와의 연결을 처리하는 핸들러.
  * - 소켓 입출력
- * - 클라이언트에서 온 명령 파싱
+ * - 클라이언트에서 온 명령 파싱 (MessageCodec)
  * - GameServer 인스턴스에 게임 로직 위임
  */
 public class ClientHandler implements Runnable {
@@ -54,101 +54,80 @@ public class ClientHandler implements Runnable {
 
             String line;
             while ((line = in.readLine()) != null) {
-                final String message = line.trim();
-                if (message.isEmpty()) {
+                final String raw = line.trim();
+                if (raw.isEmpty()) continue;
+
+                if (raw.startsWith("TIMER:")) {
+                    // 클라이언트가 TIMER를 보낼 일은 없지만, 혹시 대비해서 무시
                     continue;
                 }
 
-                if (message.startsWith("TIMER:")) {
-                    continue;
-                }
-
+                // 사망자는 /ready, CHAT_DEAD: 만 허용
                 if (status == PlayerStatus.DEAD &&
-                        !message.startsWith("/ready") &&
-                        !message.startsWith("CHAT_DEAD:")) {
+                        !raw.startsWith("/ready") &&
+                        !raw.startsWith("CHAT_DEAD:")) {
                     sendMessage("SYSTEM:당신은 죽었습니다. 채팅 외의 행동은 할 수 없습니다.");
                     continue;
                 }
 
+                Message m = MessageCodec.parseClientToServer(raw);
+                MessageType type = m.getType();
                 GameServer.GamePhase phase = server.getCurrentPhase();
 
-                if (message.equalsIgnoreCase("/start")) {
-                    System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
-                    server.startGame(this);
-                }
-                else if (message.equalsIgnoreCase("/ready")) {
-                    System.out.println("P" + playerNumber + "로부터 /ready 명령 수신");
-                    server.handleReady(this);
-                }
-                else if (message.startsWith("/skill ")) {
-                    if (phase != GameServer.GamePhase.NIGHT) {
-                        sendMessage("SYSTEM:능력은 밤에만 사용할 수 없습니다.");
-                        continue;
+                switch (type) {
+                    case COMMAND_START: {
+                        System.out.println("P" + playerNumber + "로부터 /start 명령 수신");
+                        server.startGame(this);
+                        break;
                     }
-                    switch (role) {
-                        case POLICE:
-                            server.handleInvestigate(this, message);
-                            break;
-                        case DOCTOR:
-                            server.handleSave(this, message);
-                            break;
-                        case MAFIA:
-                            server.handleKillCommand(this, message);
-                            break;
-                        case CITIZEN:
-                            sendMessage("SYSTEM:시민은 능력을 사용할 수 없습니다.");
-                            break;
-                        default:
-                            sendMessage("SYSTEM:능력을 사용할 수 없는 역할입니다.");
-                            break;
+                    case COMMAND_READY: {
+                        System.out.println("P" + playerNumber + "로부터 /ready 명령 수신");
+                        server.handleReady(this);
+                        break;
                     }
-                }
-                else if (message.startsWith("/vote ")) {
-                    if (phase == GameServer.GamePhase.DAY) {
-                        server.handleVote(this, message);
-                    } else {
-                        sendMessage("SYSTEM:투표는 낮에만 할 수 있습니다.");
-                    }
-                }
-                else if (message.startsWith("CHAT:") ||
-                        message.startsWith("CHAT_MAFIA:") ||
-                        message.startsWith("CHAT_DEAD:")) {
-
-                    synchronized (server) {
-                        String content = message;
-                        if (message.startsWith("CHAT_MAFIA:")) {
-                            content = message.substring("CHAT_MAFIA:".length());
-                        } else if (message.startsWith("CHAT_DEAD:")) {
-                            content = message.substring("CHAT_DEAD:".length());
-                        } else if (message.startsWith("CHAT:")) {
-                            content = message.substring("CHAT:".length());
+                    case COMMAND_SKILL: {
+                        if (phase != GameServer.GamePhase.NIGHT) {
+                            sendMessage("SYSTEM:능력은 밤에만 사용할 수 없습니다.");
+                            break;
                         }
-
-                        String chatMessage = content;
-
-                        if (this.status == PlayerStatus.DEAD) {
-                            System.out.println("[사망자 채팅] " + chatMessage);
-                            server.broadcastToDeadExceptSender("CHAT_DEAD:" + chatMessage, this);
+                        switch (role) {
+                            case POLICE:
+                                server.handleInvestigate(this, raw); // 원본 문자열 전달
+                                break;
+                            case DOCTOR:
+                                server.handleSave(this, raw);
+                                break;
+                            case MAFIA:
+                                server.handleKillCommand(this, raw);
+                                break;
+                            case CITIZEN:
+                                sendMessage("SYSTEM:시민은 능력을 사용할 수 없습니다.");
+                                break;
+                            default:
+                                sendMessage("SYSTEM:능력을 사용할 수 없는 역할입니다.");
+                                break;
+                        }
+                        break;
+                    }
+                    case COMMAND_VOTE: {
+                        if (phase == GameServer.GamePhase.DAY) {
+                            server.handleVote(this, raw); // 원본 문자열 전달
                         } else {
-                            GameServer.GamePhase chatPhase = server.getCurrentPhase();
-                            if (chatPhase == GameServer.GamePhase.DAY ||
-                                    chatPhase == GameServer.GamePhase.WAITING) {
-                                System.out.println("[" + chatPhase.name() + "] " + chatMessage);
-                                server.broadcastExceptSenderToAll("CHAT:" + chatMessage, this);
-                            } else if (chatPhase == GameServer.GamePhase.NIGHT) {
-                                if (role == Role.MAFIA && status == PlayerStatus.ALIVE) {
-                                    System.out.println("[밤-마피아] " + chatMessage);
-                                    server.broadcastToMafiaExceptSender("CHAT_MAFIA:" + chatMessage, this);
-                                } else {
-                                    System.out.println("[밤-시민팀 생존자] 메시지 차단");
-                                    sendMessage("SYSTEM:밤에는 마피아만 대화 가능합니다.");
-                                }
-                            }
+                            sendMessage("SYSTEM:투표는 낮에만 할 수 있습니다.");
                         }
+                        break;
                     }
-                }
-                else {
-                    sendMessage("SYSTEM:알 수 없는 명령어입니다.");
+                    case CHAT:
+                    case CHAT_MAFIA:
+                    case CHAT_DEAD: {
+                        handleChat(m);
+                        break;
+                    }
+                    case UNKNOWN:
+                    default: {
+                        sendMessage("SYSTEM:알 수 없는 명령어입니다.");
+                        break;
+                    }
                 }
             }
         } catch (IOException e) {
@@ -162,6 +141,30 @@ public class ClientHandler implements Runnable {
                 if (socket != null) socket.close();
             } catch (IOException e) {
                 // ignore
+            }
+        }
+    }
+
+    private void handleChat(Message message) {
+        String payload = message.getPayload(); // "닉네임:내용" 형태
+        GameServer.GamePhase phase = server.getCurrentPhase();
+
+        if (this.status == PlayerStatus.DEAD) {
+            System.out.println("[사망자 채팅] " + payload);
+            server.broadcastToDeadExceptSender("CHAT_DEAD:" + payload, this);
+            return;
+        }
+
+        if (phase == GameServer.GamePhase.DAY || phase == GameServer.GamePhase.WAITING) {
+            System.out.println("[" + phase.name() + "] " + payload);
+            server.broadcastExceptSenderToAll("CHAT:" + payload, this);
+        } else if (phase == GameServer.GamePhase.NIGHT) {
+            if (role == Role.MAFIA && status == PlayerStatus.ALIVE) {
+                System.out.println("[밤-마피아] " + payload);
+                server.broadcastToMafiaExceptSender("CHAT_MAFIA:" + payload, this);
+            } else {
+                System.out.println("[밤-시민팀 생존자] 메시지 차단");
+                sendMessage("SYSTEM:밤에는 마피아만 대화 가능합니다.");
             }
         }
     }
