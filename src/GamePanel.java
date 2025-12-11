@@ -6,6 +6,7 @@ import java.util.List;
 import javax.imageio.ImageIO;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.Map;
 
 public class GamePanel extends JPanel {
 
@@ -21,84 +22,27 @@ public class GamePanel extends JPanel {
     private JLabel timerLabel;
     private JLabel myRoleIconLabel;
 
-    private List<JButton> playerButtons = new ArrayList<>();
+    private final List<JButton> playerButtons = new ArrayList<>();
     private String selectedPlayer = null;
 
     private final Client client;
+    private final ClientGameState gameState;
 
-    // 문자열 대신 enum
     private GamePhase currentPhase = GamePhase.WAITING;
 
     private static final int PROFILE_ICON_SIZE = 50;
     private static final int ROLE_ICON_SIZE = 40;
 
-    private BufferedImage loadProfileImage(String playerInfo) {
-        String playerNumber = client.extractPlayerNumber(playerInfo);
-        String imageName = "unknown.png";
-
-        String investigatedRole = client.getInvestigatedRoles().get("P" + playerNumber);
-
-        // 경찰이 조사한 결과가 있다면 우선 적용
-        if (investigatedRole != null) {
-            if (investigatedRole.equals("MAFIA")) {
-                imageName = "mafia.png";
-            } else {
-                imageName = "citizen.png";
-            }
-        }
-        else {
-            Role myRole = client.getMyRole();
-            String myPlayerInfo = "P" + client.getMyPlayerNumber() + " -";
-
-            // 자기 자신의 아이콘은 역할에 맞게 표시
-            if (playerInfo.startsWith(myPlayerInfo) && myRole != Role.NONE) {
-                imageName = myRole.name().toLowerCase() + ".png";
-            }
-        }
-
-        String path = "/" + imageName;
-
-        try {
-            java.net.URL imageUrl = getClass().getResource(path);
-            if (imageUrl != null) {
-                BufferedImage original = ImageIO.read(imageUrl);
-                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g2d = scaled.createGraphics();
-                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
-                g2d.dispose();
-                return scaled;
-            }
-        } catch (IOException e) {
-            System.err.println("경고: 기본/역할 이미지 에셋을 찾을 수 없습니다: " + path);
-        }
-        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
-    }
-
-    public ImageIcon loadRoleIcon(Role role) {
-        String imagePath = "/" + role.name().toLowerCase() + ".png";
-        try {
-            java.net.URL imageUrl = getClass().getResource(imagePath);
-            if (imageUrl != null) {
-                Image img = ImageIO.read(imageUrl).getScaledInstance(
-                        ROLE_ICON_SIZE, ROLE_ICON_SIZE, Image.SCALE_SMOOTH);
-                return new ImageIcon(img);
-            }
-        } catch (IOException e) {
-            System.err.println("경고: 역할 이미지 로드 실패: " + imagePath);
-        }
-        return new ImageIcon(new BufferedImage(ROLE_ICON_SIZE, ROLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
-    }
-
-    public GamePanel(Client client) {
+    public GamePanel(Client client, ClientGameState gameState) {
         this.client = client;
+        this.gameState = gameState;
 
         try {
             java.net.URL imageUrl = getClass().getResource("/background.png");
             if (imageUrl != null) {
                 backgroundImage = ImageIO.read(imageUrl);
             } else {
-                System.err.println("경고: 클래스 경로에서 /background.png 이미지를 찾을 수 없습니다. (경로 확인 필요)");
+                System.err.println("경고: 클래스 경로에서 /background.png 이미지를 찾을 수 없습니다.");
             }
         } catch (IOException e) {
             System.err.println("배경 이미지 로드 중 오류 발생.");
@@ -109,7 +53,7 @@ public class GamePanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         setPreferredSize(new Dimension(400, 600));
 
-        // 상단 헤더 (타이머 + 역할 아이콘)
+        // 상단 헤더
         JPanel newHeaderPanel = new JPanel(new BorderLayout());
         newHeaderPanel.setOpaque(false);
 
@@ -132,10 +76,9 @@ public class GamePanel extends JPanel {
         rightHeaderPanel.add(timerLabel);
 
         newHeaderPanel.add(rightHeaderPanel, BorderLayout.EAST);
-
         add(newHeaderPanel, BorderLayout.NORTH);
 
-        // 채팅 내용 영역
+        // 채팅 영역
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setAlignmentY(Component.TOP_ALIGNMENT);
@@ -148,10 +91,9 @@ public class GamePanel extends JPanel {
         chatScrollPane.getViewport().setOpaque(false);
 
         appendChatMessage("시스템", "게임 시작을 기다립니다...", false);
-
         add(chatScrollPane, BorderLayout.CENTER);
 
-        // 하단 입력 + 플레이어 버튼 + 액션 버튼
+        // 하단 입력 + 버튼 영역
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setOpaque(false);
         add(bottomPanel, BorderLayout.SOUTH);
@@ -208,13 +150,73 @@ public class GamePanel extends JPanel {
         });
     }
 
+    // ===== 프로필/마크/역할 아이콘 로딩 =====
+
+    private BufferedImage loadProfileImage(String playerInfo) {
+        String playerNumber = extractPlayerNumber(playerInfo);
+        String imageName = "unknown.png";
+
+        Map<String, String> investigated = gameState.getInvestigatedRoles();
+        String investigatedRole = investigated.get("P" + playerNumber);
+
+        if (investigatedRole != null) {
+            if (investigatedRole.equals("MAFIA")) {
+                imageName = "mafia.png";
+            } else {
+                imageName = "citizen.png";
+            }
+        } else {
+            Role myRole = gameState.getMyRole();
+            String myPlayerInfo = "P" + gameState.getMyPlayerNumber() + " -";
+
+            if (playerInfo.startsWith(myPlayerInfo) && myRole != null && myRole != Role.NONE) {
+                imageName = myRole.name().toLowerCase() + ".png";
+            }
+        }
+
+        String path = "/" + imageName;
+        try {
+            java.net.URL imageUrl = getClass().getResource(path);
+            if (imageUrl != null) {
+                BufferedImage original = ImageIO.read(imageUrl);
+                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2d = scaled.createGraphics();
+                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
+                g2d.dispose();
+                return scaled;
+            }
+        } catch (IOException e) {
+            System.err.println("경고: 기본/역할 이미지 에셋을 찾을 수 없습니다: " + path);
+        }
+        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
+    }
+
+    public ImageIcon loadRoleIcon(Role role) {
+        if (role == null || role == Role.NONE) {
+            return new ImageIcon(new BufferedImage(ROLE_ICON_SIZE, ROLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+        }
+        String imagePath = "/" + role.name().toLowerCase() + ".png";
+        try {
+            java.net.URL imageUrl = getClass().getResource(imagePath);
+            if (imageUrl != null) {
+                Image img = ImageIO.read(imageUrl).getScaledInstance(
+                        ROLE_ICON_SIZE, ROLE_ICON_SIZE, Image.SCALE_SMOOTH);
+                return new ImageIcon(img);
+            }
+        } catch (IOException e) {
+            System.err.println("경고: 역할 이미지 로드 실패: " + imagePath);
+        }
+        return new ImageIcon(new BufferedImage(ROLE_ICON_SIZE, ROLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+    }
+
     private void updateButtonIcon(JButton btn, String playerInfo) {
         BufferedImage baseImage = loadProfileImage(playerInfo);
 
         btn.setText(null);
         btn.setPreferredSize(new Dimension(PROFILE_ICON_SIZE + 20, PROFILE_ICON_SIZE + 20));
 
-        String playerNumber = client.extractPlayerNumber(playerInfo);
+        String playerNumber = extractPlayerNumber(playerInfo);
         Image finalImage = applyMarkAndRole(baseImage, playerNumber);
         btn.setIcon(new ImageIcon(finalImage));
 
@@ -236,9 +238,8 @@ public class GamePanel extends JPanel {
 
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        String markedPlayer = client.getMarkedPlayer();
+        String markedPlayer = gameState.getMarkedPlayer();
 
-        // 밤일 때, 서버에서 받은 MARK_TARGET과 일치하면 오버레이
         if (markedPlayer.equals("P" + playerNumber) && currentPhase == GamePhase.NIGHT) {
             String targetPath = "/mark_target.png";
             try {
@@ -256,6 +257,8 @@ public class GamePanel extends JPanel {
         return overlaidImage;
     }
 
+    // ====== 기본 페인팅 ======
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -268,7 +271,21 @@ public class GamePanel extends JPanel {
         return this.currentPhase;
     }
 
-    // ====== 채팅 출력 ======
+    private String extractPlayerNumber(String playerString) {
+        try {
+            if (playerString.startsWith("P")) {
+                int dashIndex = playerString.indexOf(" -");
+                if (dashIndex != -1) {
+                    return playerString.substring(1, dashIndex);
+                }
+            }
+            return "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    // ===== 채팅 메시지 추가 =====
 
     public void appendChatMessage(String sender, String message, boolean isMyMessage, String type) {
         if (sender.equals("시스템")) {
@@ -281,16 +298,15 @@ public class GamePanel extends JPanel {
             rowPanel.add(systemLabel);
 
             contentPanel.add(rowPanel);
-
             contentPanel.revalidate();
             contentPanel.repaint();
 
-            if (chatScrollPane != null) {
-                SwingUtilities.invokeLater(() -> {
+            SwingUtilities.invokeLater(() -> {
+                if (chatScrollPane != null) {
                     JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
                     vertical.setValue(vertical.getMaximum());
-                });
-            }
+                }
+            });
         } else {
             ChatMessagePanel chatRow = new ChatMessagePanel(sender, message, isMyMessage, type);
 
@@ -308,9 +324,7 @@ public class GamePanel extends JPanel {
                 contentPanel.revalidate();
                 Dimension preferredSize = chatRow.getPreferredSize();
                 int finalWidth = Math.min(preferredSize.width, maxChatWidth);
-
                 chatRow.setMaximumSize(new Dimension(finalWidth, preferredSize.height));
-
                 contentPanel.revalidate();
 
                 if (chatScrollPane != null) {
@@ -325,7 +339,7 @@ public class GamePanel extends JPanel {
         appendChatMessage(sender, message, isMyMessage, "NORMAL");
     }
 
-    // ====== 플레이어 버튼 / 마크 갱신 ======
+    // ===== 플레이어 버튼 / 마크 =====
 
     public void updatePlayerMarks() {
         for (JButton btn : playerButtons) {
@@ -360,7 +374,6 @@ public class GamePanel extends JPanel {
             btn.setToolTipText(p);
 
             updateButtonIcon(btn, p);
-
             btn.setFocusable(false);
 
             btn.addActionListener(e -> {
@@ -411,15 +424,17 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // ====== 타이머 / 페이즈에 따른 UI 제어 ======
+    // ===== 타이머 / 단계 상태 =====
 
     public void updateTimer(GamePhase phase, int secondsLeft) {
         this.currentPhase = phase;
+        gameState.setCurrentPhase(phase);
+
         String phaseText = "";
 
-        boolean isAbilityUser = client.hasAbility();
-        boolean isClientAlive = client.isAlive();
-        Role myRole = client.getMyRole();
+        boolean isAbilityUser = gameState.hasAbility();
+        boolean isClientAlive = gameState.isAlive();
+        Role myRole = gameState.getMyRole();
 
         if (!isClientAlive) {
             voteButton.setVisible(false);
@@ -503,7 +518,7 @@ public class GamePanel extends JPanel {
         });
     }
 
-    // ====== 말풍선/채팅 UI ======
+    // ===== 말풍선 / 채팅 UI =====
 
     class BubblePanel extends JPanel {
         private final boolean isMyMessage;
@@ -585,7 +600,7 @@ public class GamePanel extends JPanel {
 
     class ChatMessagePanel extends JPanel {
 
-        private static final ImageIcon Unknown_ICON = loadUnknownIcon();
+        private static final ImageIcon UNKNOWN_ICON = loadUnknownIcon();
 
         private static ImageIcon loadUnknownIcon() {
             try {
@@ -609,7 +624,7 @@ public class GamePanel extends JPanel {
             messageBubbleContainer.setOpaque(false);
             messageBubbleContainer.setLayout(new BoxLayout(messageBubbleContainer, BoxLayout.Y_AXIS));
 
-            JLabel profileLabel = new JLabel(Unknown_ICON);
+            JLabel profileLabel = new JLabel(UNKNOWN_ICON);
             profileLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
             profileLabel.setAlignmentY(Component.BOTTOM_ALIGNMENT);
 
@@ -649,9 +664,11 @@ public class GamePanel extends JPanel {
         @Override
         public float getAlignmentX() {
             FlowLayout layout = (FlowLayout) getLayout();
-            return (layout.getAlignment() == FlowLayout.RIGHT)
-                    ? Component.RIGHT_ALIGNMENT
-                    : Component.LEFT_ALIGNMENT;
+            if (layout.getAlignment() == FlowLayout.RIGHT) {
+                return Component.RIGHT_ALIGNMENT;
+            } else {
+                return Component.LEFT_ALIGNMENT;
+            }
         }
 
         @Override
@@ -661,6 +678,7 @@ public class GamePanel extends JPanel {
                 int maxChatWidth = (int) (parent.getParent().getWidth() * 0.70);
                 int preferredWidth = super.getPreferredSize().width;
                 int finalWidth = Math.min(preferredWidth, maxChatWidth);
+
                 return new Dimension(finalWidth, super.getPreferredSize().height);
             }
             return super.getMaximumSize();
