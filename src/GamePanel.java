@@ -6,7 +6,6 @@ import java.util.List;
 import javax.imageio.ImageIO;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
-import java.util.Map;
 
 public class GamePanel extends JPanel {
 
@@ -20,7 +19,6 @@ public class GamePanel extends JPanel {
     private JButton skillButton;
 
     private JLabel timerLabel;
-
     private JLabel myRoleIconLabel;
 
     private List<JButton> playerButtons = new ArrayList<>();
@@ -28,17 +26,19 @@ public class GamePanel extends JPanel {
 
     private final Client client;
 
-    private String currentPhase = "WAITING";
+    // 문자열 대신 enum
+    private GamePhase currentPhase = GamePhase.WAITING;
 
     private static final int PROFILE_ICON_SIZE = 50;
     private static final int ROLE_ICON_SIZE = 40;
 
     private BufferedImage loadProfileImage(String playerInfo) {
-        String playerNumber = extractPlayerNumber(playerInfo);
+        String playerNumber = client.extractPlayerNumber(playerInfo);
         String imageName = "unknown.png";
 
         String investigatedRole = client.getInvestigatedRoles().get("P" + playerNumber);
 
+        // 경찰이 조사한 결과가 있다면 우선 적용
         if (investigatedRole != null) {
             if (investigatedRole.equals("MAFIA")) {
                 imageName = "mafia.png";
@@ -47,11 +47,12 @@ public class GamePanel extends JPanel {
             }
         }
         else {
-            String myRole = client.getMyRole();
+            Role myRole = client.getMyRole();
             String myPlayerInfo = "P" + client.getMyPlayerNumber() + " -";
 
-            if (playerInfo.startsWith(myPlayerInfo) && !myRole.isEmpty()) {
-                imageName = myRole.toLowerCase() + ".png";
+            // 자기 자신의 아이콘은 역할에 맞게 표시
+            if (playerInfo.startsWith(myPlayerInfo) && myRole != Role.NONE) {
+                imageName = myRole.name().toLowerCase() + ".png";
             }
         }
 
@@ -74,27 +75,8 @@ public class GamePanel extends JPanel {
         return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
     }
 
-    private BufferedImage loadMarkImage(String imageName) {
-        String path = "/" + imageName;
-        try {
-            java.net.URL imageUrl = getClass().getResource(path);
-            if (imageUrl != null) {
-                BufferedImage original = ImageIO.read(imageUrl);
-                BufferedImage scaled = new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g2d = scaled.createGraphics();
-                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                g2d.drawImage(original, 0, 0, PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, null);
-                g2d.dispose();
-                return scaled;
-            }
-        } catch (IOException e) {
-            System.err.println("경고: 마크 이미지 에셋을 찾을 수 없습니다: " + path);
-        }
-        return new BufferedImage(PROFILE_ICON_SIZE, PROFILE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB);
-    }
-
-    public ImageIcon loadRoleIcon(String role) {
-        String imagePath = "/" + role.toLowerCase() + ".png";
+    public ImageIcon loadRoleIcon(Role role) {
+        String imagePath = "/" + role.name().toLowerCase() + ".png";
         try {
             java.net.URL imageUrl = getClass().getResource(imagePath);
             if (imageUrl != null) {
@@ -127,6 +109,7 @@ public class GamePanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         setPreferredSize(new Dimension(400, 600));
 
+        // 상단 헤더 (타이머 + 역할 아이콘)
         JPanel newHeaderPanel = new JPanel(new BorderLayout());
         newHeaderPanel.setOpaque(false);
 
@@ -152,6 +135,7 @@ public class GamePanel extends JPanel {
 
         add(newHeaderPanel, BorderLayout.NORTH);
 
+        // 채팅 내용 영역
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setAlignmentY(Component.TOP_ALIGNMENT);
@@ -167,6 +151,7 @@ public class GamePanel extends JPanel {
 
         add(chatScrollPane, BorderLayout.CENTER);
 
+        // 하단 입력 + 플레이어 버튼 + 액션 버튼
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setOpaque(false);
         add(bottomPanel, BorderLayout.SOUTH);
@@ -216,7 +201,6 @@ public class GamePanel extends JPanel {
             if (selectedPlayer != null) {
                 String playerNumber = client.extractPlayerNumber(selectedPlayer);
                 String command = "/skill " + playerNumber;
-
                 client.sendMessage(command);
             } else {
                 JOptionPane.showMessageDialog(this, "능력 대상을 먼저 선택하세요.");
@@ -230,8 +214,7 @@ public class GamePanel extends JPanel {
         btn.setText(null);
         btn.setPreferredSize(new Dimension(PROFILE_ICON_SIZE + 20, PROFILE_ICON_SIZE + 20));
 
-        String playerNumber = extractPlayerNumber(playerInfo);
-
+        String playerNumber = client.extractPlayerNumber(playerInfo);
         Image finalImage = applyMarkAndRole(baseImage, playerNumber);
         btn.setIcon(new ImageIcon(finalImage));
 
@@ -246,7 +229,6 @@ public class GamePanel extends JPanel {
     }
 
     private Image applyMarkAndRole(BufferedImage baseImage, String playerNumber) {
-
         BufferedImage overlaidImage = new BufferedImage(
                 baseImage.getWidth(), baseImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2d = overlaidImage.createGraphics();
@@ -256,7 +238,8 @@ public class GamePanel extends JPanel {
 
         String markedPlayer = client.getMarkedPlayer();
 
-        if (markedPlayer.equals("P" + playerNumber) && currentPhase.equals("NIGHT")) {
+        // 밤일 때, 서버에서 받은 MARK_TARGET과 일치하면 오버레이
+        if (markedPlayer.equals("P" + playerNumber) && currentPhase == GamePhase.NIGHT) {
             String targetPath = "/mark_target.png";
             try {
                 java.net.URL targetUrl = getClass().getResource(targetPath);
@@ -273,7 +256,6 @@ public class GamePanel extends JPanel {
         return overlaidImage;
     }
 
-
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -282,24 +264,11 @@ public class GamePanel extends JPanel {
         }
     }
 
-    public String getCurrentPhase() {
+    public GamePhase getCurrentPhase() {
         return this.currentPhase;
     }
 
-
-    private String extractPlayerNumber(String playerString) {
-        try {
-            if (playerString.startsWith("P")) {
-                int dashIndex = playerString.indexOf(" -");
-                if (dashIndex != -1) {
-                    return playerString.substring(1, dashIndex);
-                }
-            }
-            return "";
-        } catch (Exception e) {
-            return "";
-        }
-    }
+    // ====== 채팅 출력 ======
 
     public void appendChatMessage(String sender, String message, boolean isMyMessage, String type) {
         if (sender.equals("시스템")) {
@@ -316,7 +285,6 @@ public class GamePanel extends JPanel {
             contentPanel.revalidate();
             contentPanel.repaint();
 
-            // ⭐️ 시스템 메시지 스크롤 로직
             if (chatScrollPane != null) {
                 SwingUtilities.invokeLater(() -> {
                     JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
@@ -345,7 +313,6 @@ public class GamePanel extends JPanel {
 
                 contentPanel.revalidate();
 
-                // ⭐️ 일반 메시지 스크롤 로직 (크기 확정 후 스크롤)
                 if (chatScrollPane != null) {
                     JScrollBar vertical = chatScrollPane.getVerticalScrollBar();
                     vertical.setValue(vertical.getMaximum());
@@ -358,10 +325,11 @@ public class GamePanel extends JPanel {
         appendChatMessage(sender, message, isMyMessage, "NORMAL");
     }
 
+    // ====== 플레이어 버튼 / 마크 갱신 ======
+
     public void updatePlayerMarks() {
         for (JButton btn : playerButtons) {
             String playerInfo = (String) btn.getClientProperty("PlayerInfo");
-
             if (playerInfo != null) {
                 updateButtonIcon(btn, playerInfo);
             }
@@ -370,8 +338,8 @@ public class GamePanel extends JPanel {
         playerButtonPanel.repaint();
     }
 
-    public void updateMyRoleDisplay(String role) {
-        if (role == null || role.equals("UNKNOWN")) {
+    public void updateMyRoleDisplay(Role role) {
+        if (role == null || role == Role.NONE) {
             myRoleIconLabel.setIcon(null);
             myRoleIconLabel.setToolTipText(null);
         } else {
@@ -387,7 +355,6 @@ public class GamePanel extends JPanel {
         selectedPlayer = null;
 
         for (String p : players) {
-
             JButton btn = new JButton();
             btn.putClientProperty("PlayerInfo", p);
             btn.setToolTipText(p);
@@ -420,8 +387,8 @@ public class GamePanel extends JPanel {
         contentPanel.revalidate();
         contentPanel.repaint();
 
-        updateTimer("WAITING", 0);
-        updateMyRoleDisplay("UNKNOWN");
+        updateTimer(GamePhase.WAITING, 0);
+        updateMyRoleDisplay(Role.NONE);
 
         selectedPlayer = null;
         for (JButton btn : playerButtons) {
@@ -433,9 +400,7 @@ public class GamePanel extends JPanel {
     private void highlightSelectedButton(JButton selected) {
         for (JButton btn : playerButtons) {
             String playerInfo = (String) btn.getClientProperty("PlayerInfo");
-
             updateButtonIcon(btn, playerInfo);
-
             btn.setBackground(null);
             btn.setForeground(Color.BLACK);
         }
@@ -446,14 +411,15 @@ public class GamePanel extends JPanel {
         }
     }
 
-    public void updateTimer(String phase, int secondsLeft) {
+    // ====== 타이머 / 페이즈에 따른 UI 제어 ======
+
+    public void updateTimer(GamePhase phase, int secondsLeft) {
         this.currentPhase = phase;
         String phaseText = "";
 
         boolean isAbilityUser = client.hasAbility();
         boolean isClientAlive = client.isAlive();
-        String myRole = client.getMyRole();
-
+        Role myRole = client.getMyRole();
 
         if (!isClientAlive) {
             voteButton.setVisible(false);
@@ -463,60 +429,59 @@ public class GamePanel extends JPanel {
             skillButton.setEnabled(false);
             phaseText = "사망 (관전자 모드)";
             playerButtonPanel.setEnabled(false);
-            for(JButton btn : playerButtons) btn.setEnabled(false);
+            for (JButton btn : playerButtons) btn.setEnabled(false);
         } else {
             inputField.setEnabled(true);
             playerButtonPanel.setEnabled(true);
-            for(JButton btn : playerButtons) btn.setEnabled(true);
+            for (JButton btn : playerButtons) btn.setEnabled(true);
 
             switch (phase) {
-                case "WAITING":
+                case WAITING:
                     phaseText = "대기 중";
                     voteButton.setVisible(false);
                     skillButton.setVisible(false);
                     break;
-                case "DAY":
+                case DAY:
                     phaseText = "낮 (토론/투표)";
                     voteButton.setVisible(true);
                     skillButton.setVisible(false);
                     break;
-                case "NIGHT":
+                case NIGHT:
                     phaseText = "밤 (능력 사용)";
                     voteButton.setVisible(false);
                     skillButton.setVisible(isAbilityUser);
 
-                    if ("CITIZEN".equals(myRole)) {
+                    if (myRole == Role.CITIZEN) {
                         inputField.setEnabled(false);
                         voteButton.setEnabled(false);
                         skillButton.setEnabled(false);
                         playerButtonPanel.setEnabled(false);
-                        for(JButton btn : playerButtons) btn.setEnabled(false);
+                        for (JButton btn : playerButtons) btn.setEnabled(false);
                     } else if (isAbilityUser) {
-                        inputField.setEnabled("MAFIA".equals(myRole));
+                        inputField.setEnabled(myRole == Role.MAFIA);
                         skillButton.setEnabled(true);
                         playerButtonPanel.setEnabled(true);
-                        for(JButton btn : playerButtons) btn.setEnabled(true);
+                        for (JButton btn : playerButtons) btn.setEnabled(true);
                     } else {
                         inputField.setEnabled(false);
                         playerButtonPanel.setEnabled(false);
-                        for(JButton btn : playerButtons) btn.setEnabled(false);
+                        for (JButton btn : playerButtons) btn.setEnabled(false);
                     }
-
                     break;
                 default:
                     phaseText = "정보 없음";
                     voteButton.setVisible(false);
                     skillButton.setVisible(false);
                     playerButtonPanel.setEnabled(true);
-                    for(JButton btn : playerButtons) btn.setEnabled(true);
+                    for (JButton btn : playerButtons) btn.setEnabled(true);
             }
 
-            if (phase.equals("DAY") && isClientAlive) {
+            if (phase == GamePhase.DAY && isClientAlive) {
                 inputField.setEnabled(true);
                 voteButton.setEnabled(true);
                 skillButton.setEnabled(true);
                 playerButtonPanel.setEnabled(true);
-                for(JButton btn : playerButtons) btn.setEnabled(true);
+                for (JButton btn : playerButtons) btn.setEnabled(true);
             }
         }
 
@@ -528,15 +493,17 @@ public class GamePanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             timerLabel.setText("현재 단계: " + finalPhaseText + " (" + timeString + ")");
 
-            if (phase.equals("DAY")) {
+            if (phase == GamePhase.DAY) {
                 timerLabel.setForeground(Color.RED);
-            } else if (phase.equals("NIGHT")) {
+            } else if (phase == GamePhase.NIGHT) {
                 timerLabel.setForeground(Color.BLUE);
             } else {
                 timerLabel.setForeground(Color.BLACK);
             }
         });
     }
+
+    // ====== 말풍선/채팅 UI ======
 
     class BubblePanel extends JPanel {
         private final boolean isMyMessage;
@@ -601,13 +568,11 @@ public class GamePanel extends JPanel {
 
             if (isMyMessage) {
                 bubble = new RoundRectangle2D.Double(0, 0, w - TAIL_SIZE, h, ARC, ARC);
-
                 int[] xPoints = {w - TAIL_SIZE, w - TAIL_SIZE, w};
                 int[] yPoints = {h - 1 - TAIL_SIZE * 2, h - 1, h - 1};
                 g2.fillPolygon(xPoints, yPoints, 3);
             } else {
                 bubble = new RoundRectangle2D.Double(TAIL_SIZE, 0, w - TAIL_SIZE, h, ARC, ARC);
-
                 int[] xPoints = {0, TAIL_SIZE, TAIL_SIZE};
                 int[] yPoints = {h - 1, h - 1 - TAIL_SIZE * 2, h - 1};
                 g2.fillPolygon(xPoints, yPoints, 3);
@@ -684,11 +649,9 @@ public class GamePanel extends JPanel {
         @Override
         public float getAlignmentX() {
             FlowLayout layout = (FlowLayout) getLayout();
-            if (layout.getAlignment() == FlowLayout.RIGHT) {
-                return Component.RIGHT_ALIGNMENT;
-            } else {
-                return Component.LEFT_ALIGNMENT;
-            }
+            return (layout.getAlignment() == FlowLayout.RIGHT)
+                    ? Component.RIGHT_ALIGNMENT
+                    : Component.LEFT_ALIGNMENT;
         }
 
         @Override
@@ -698,11 +661,11 @@ public class GamePanel extends JPanel {
                 int maxChatWidth = (int) (parent.getParent().getWidth() * 0.70);
                 int preferredWidth = super.getPreferredSize().width;
                 int finalWidth = Math.min(preferredWidth, maxChatWidth);
-
                 return new Dimension(finalWidth, super.getPreferredSize().height);
             }
-            return super.getPreferredSize();
+            return super.getMaximumSize();
         }
+
         @Override
         public Dimension getPreferredSize() {
             return super.getPreferredSize();

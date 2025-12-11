@@ -13,13 +13,11 @@ public class ServerGUI extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        // 1. 로그 표시 영역 (중앙)
         logArea = new JTextArea();
         logArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(logArea);
         add(scrollPane, BorderLayout.CENTER);
 
-        // 2. 하단 버튼 및 입력 영역
         JPanel bottomPanel = createBottomPanel();
         add(bottomPanel, BorderLayout.SOUTH);
 
@@ -28,7 +26,6 @@ public class ServerGUI extends JFrame {
         setLocationRelativeTo(null);
         setVisible(true);
 
-        // 콘솔 출력을 JTextArea로 리디렉션
         redirectSystemOut();
     }
 
@@ -36,12 +33,10 @@ public class ServerGUI extends JFrame {
         JPanel panel = new JPanel();
         panel.setLayout(new FlowLayout(FlowLayout.CENTER));
 
-        // 포트 넘버 입력
         panel.add(new JLabel("포트 넘버:"));
         portNumberField = new JTextField("9090", 5);
         panel.add(portNumberField);
 
-        // 서버 시작 버튼
         startButton = new JButton("서버 시작");
         panel.add(startButton);
 
@@ -60,14 +55,12 @@ public class ServerGUI extends JFrame {
         }
     }
 
-    // System.out.println()을 JTextArea로 리디렉션하는 핵심 메서드
     private void redirectSystemOut() {
         PrintStream printStream = new PrintStream(new CustomOutputStream(logArea));
         System.setOut(printStream);
         System.setErr(printStream);
     }
 
-    // JTextArea에 내용을 추가하는 OutputStream 클래스
     private class CustomOutputStream extends OutputStream {
         private JTextArea textArea;
 

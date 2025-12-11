@@ -1,6 +1,5 @@
 import javax.swing.*;
 import java.awt.*;
-import java.util.Arrays;
 import java.util.List;
 
 public class WaitingGamePanel extends JPanel {
@@ -22,7 +21,6 @@ public class WaitingGamePanel extends JPanel {
         topPanel.add(new JLabel("로비 상태 및 채팅:"));
         add(topPanel, BorderLayout.NORTH);
 
-        // 🌟 [수정] JTextArea 이름 변경 및 초기 설정
         displayArea = new JTextArea("서버에 연결하세요...");
         displayArea.setEditable(false);
         JScrollPane scrollPane = new JScrollPane(displayArea);
@@ -30,17 +28,13 @@ public class WaitingGamePanel extends JPanel {
 
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
 
-        // 1. 게임 시작 버튼 (방장 전용)
         startGameButton = new JButton("게임 시작 (4명 이상)");
-        startGameButton.setVisible(false); // 초기에는 숨김
-        // 🌟 [수정] 클라이언트의 handleStartClick() 호출
+        startGameButton.setVisible(false);
         startGameButton.addActionListener(e -> client.handleStartClick());
         bottomPanel.add(startGameButton);
 
-        // 2. 준비/취소 버튼 (일반 참여자 전용)
         readyButton = new JButton("준비");
-        readyButton.setVisible(false); // 초기에는 숨김
-        // 🌟 [추가] 클라이언트의 handleReadyClick() 호출
+        readyButton.setVisible(false);
         readyButton.addActionListener(e -> client.handleReadyClick());
         bottomPanel.add(readyButton);
 
@@ -48,7 +42,6 @@ public class WaitingGamePanel extends JPanel {
     }
 
     public void updatePlayerList(List<String> players) {
-
         if (players == null || players.isEmpty()) {
             displayArea.append("\n--- 참가자 (0명) ---\n참가자가 없습니다.\n");
             return;
@@ -61,7 +54,7 @@ public class WaitingGamePanel extends JPanel {
         }
 
         displayArea.append(sb.toString());
-        displayArea.setCaretPosition(displayArea.getDocument().getLength()); // 스크롤 하단
+        displayArea.setCaretPosition(displayArea.getDocument().getLength());
     }
 
     public void appendChatMessage(String message) {

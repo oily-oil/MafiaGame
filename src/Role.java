@@ -4,5 +4,5 @@ public enum Role {
     MAFIA,
     POLICE,  // 경찰
     DOCTOR,  // 의사
-    NONE     // 게임 시작 전
+    NONE     // 게임 시작 전 / 역할 없음
 }
