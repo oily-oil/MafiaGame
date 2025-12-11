@@ -11,6 +11,11 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.Collections;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -18,8 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * GameServer: 여러 개의 GameRoom을 관리하는 메인 서버.
  *  - 클라이언트 접속/해제 관리
- *  - 각 클라이언트를 방에 배치 (기본: Lobby)
- *  - /rooms, /join 명령 처리
+ *  - 각 클라이언트를 기본 방(Lobby)에 배치
+ *  - 방 생성/입장/목록 관련 메서드를 제공 (PlayerSession에서 /room 명령으로 사용)
  *
  * 실제 게임 규칙(낮/밤, 투표, 능력 등)은 GameRoom 이 담당.
  *
@@ -28,8 +33,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class GameServer {
 
+    // 현재 서버에서 운영 중인 방 목록
     private final Map<String, GameRoom> rooms = new LinkedHashMap<>();
+
+    // 접속 중인 플레이어 세션 목록
+    private final Set<PlayerSession> sessions =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    // 클라이언트 처리용 스레드 풀
     private final ExecutorService clientPool = Executors.newCachedThreadPool();
+
+    // P1, P2, ... 부여용 번호 카운터
     private final AtomicInteger playerCounter = new AtomicInteger(1);
 
     private ServerSocket serverSocket;
@@ -51,8 +65,18 @@ public class GameServer {
             while (running) {
                 try {
                     Socket socket = serverSocket.accept();
-                    ClientHandler handler = new ClientHandler(this, socket);
-                    clientPool.execute(handler);
+
+                    int playerNumber = playerCounter.getAndIncrement();
+                    // 🔹 PlayerSession은 Runnable 이며, 소켓을 직접 처리
+                    PlayerSession session = new PlayerSession(this, socket, playerNumber);
+                    sessions.add(session);
+
+                    // 🔹 기본 방(Lobby)에 자동 입장
+                    GameRoom lobby = getOrCreateRoom(DEFAULT_ROOM_NAME);
+                    session.setCurrentRoom(lobby);
+                    lobby.addPlayer(session);
+
+                    clientPool.execute(session);
                 } catch (IOException e) {
                     if (running) {
                         System.err.println("[SERVER] Accept error: " + e.getMessage());
@@ -61,109 +85,64 @@ public class GameServer {
             }
         }, "Accept-Thread");
 
+        acceptThread.setDaemon(true);
         acceptThread.start();
     }
 
+    // ============================================================
+    // 방 관리 메서드들 (PlayerSession / GameRoom 에서 사용)
+    // ============================================================
+
     /**
-     * 새로운 클라이언트 등록 (처음 접속 시 기본 방 Lobby 로 배치)
+     * 방 가져오기 또는 생성 (기본 방 등에서 사용)
      */
-    public synchronized PlayerSession registerNewClient(ClientHandler handler, String nickname) {
-        int playerNumber = playerCounter.getAndIncrement();
-        GameRoom room = getOrCreateRoom(DEFAULT_ROOM_NAME);
-        PlayerSession session = new PlayerSession(handler, playerNumber, nickname);
-
-        room.addPlayer(session);
-        handler.setRoomAndSession(room, session);
-
-        return session;
+    public synchronized GameRoom getOrCreateRoom(String roomName) {
+        GameRoom room = rooms.get(roomName);
+        if (room == null) {
+            room = new GameRoom(this, roomName);
+            rooms.put(roomName, room);
+            System.out.println("[SERVER] 방 생성: " + roomName);
+        }
+        return room;
     }
 
     /**
-     * /rooms 명령 처리: 호출한 클라이언트에게 방 목록을 SYSTEM 메시지로 전송
+     * 명시적으로 새 방을 만들 때 사용 (/room create ...)
+     * 이미 존재하면 null 반환
      */
-    public synchronized void sendRoomListTo(ClientHandler handler) {
-        if (rooms.isEmpty()) {
-            handler.sendMessage("SYSTEM:[방목록] 현재 생성된 방이 없습니다.");
-            return;
+    public synchronized GameRoom createRoom(String roomName) {
+        if (rooms.containsKey(roomName)) {
+            return null;
         }
+        GameRoom room = new GameRoom(this, roomName);
+        rooms.put(roomName, room);
+        System.out.println("[SERVER] 방 생성: " + roomName);
+        return room;
+    }
 
-        handler.sendMessage("SYSTEM:[방목록] 현재 " + rooms.size() + "개 방이 있습니다.");
+    /**
+     * 방 이름으로 GameRoom 조회 (없으면 null)
+     */
+    public synchronized GameRoom getRoom(String roomName) {
+        return rooms.get(roomName);
+    }
 
+    /**
+     * /room list 명령 응답용:
+     *  - "방이름 (인원수)" 문자열 목록 반환
+     */
+    public synchronized List<String> getRoomInfoList() {
+        List<String> result = new ArrayList<>();
         for (GameRoom room : rooms.values()) {
-            String info = String.format(
-                    "[방] %s - %d명 (%s)",
-                    room.getRoomName(),
-                    room.getPlayerCount(),
-                    room.getCurrentPhase().name()
-            );
-            handler.sendMessage("SYSTEM:" + info);
+            result.add(room.getRoomName() + " (" + room.getPlayerCount() + "명)");
         }
+        return result;
     }
 
     /**
-     * /join roomName 명령 처리
-     *  - 없으면 새로 생성
-     *  - 기존 방에서 탈퇴 후 새 방으로 이동
+     * 방에서 플레이어가 나간 뒤, 방이 비었을 경우 GameRoom 쪽에서 호출
      */
-    public synchronized void joinRoom(ClientHandler handler, String roomName) {
-        roomName = roomName.trim();
-        if (roomName.isEmpty()) {
-            handler.sendMessage("SYSTEM:방 이름이 올바르지 않습니다. 예: /join Room1");
-            return;
-        }
-
-        GameRoom currentRoom = handler.getRoom();
-        PlayerSession session = handler.getSession();
-
-        if (session == null) {
-            handler.sendMessage("SYSTEM:아직 서버에 등록되지 않았습니다. 잠시 후 다시 시도해주세요.");
-            return;
-        }
-
-        if (currentRoom != null && currentRoom.getRoomName().equals(roomName)) {
-            handler.sendMessage("SYSTEM:이미 '" + roomName + "' 방에 있습니다.");
-            return;
-        }
-
-        // 기존 방에서 제거
-        if (currentRoom != null) {
-            currentRoom.removePlayer(session);
-            // 방이 비면 제거
-            if (currentRoom.getPlayerCount() == 0) {
-                rooms.remove(currentRoom.getRoomName());
-                System.out.println("[SERVER] 방 제거: " + currentRoom.getRoomName());
-            }
-        }
-
-        // 새 방에 추가
-        GameRoom targetRoom = getOrCreateRoom(roomName);
-        targetRoom.addPlayer(session);
-        handler.setRoomAndSession(targetRoom, session);
-
-        handler.sendMessage("SYSTEM:[방이동] '" + roomName + "' 방에 입장했습니다.");
-    }
-
-    /**
-     * 클라이언트 연결 해제 처리
-     */
-    public synchronized void onClientDisconnected(ClientHandler handler) {
-        GameRoom room = handler.getRoom();
-        PlayerSession session = handler.getSession();
-
-        if (room != null && session != null) {
-            room.removePlayer(session);
-
-            if (room.getPlayerCount() == 0) {
-                rooms.remove(room.getRoomName());
-                System.out.println("[SERVER] 방 제거: " + room.getRoomName());
-            }
-        }
-    }
-
-    /**
-     * 방이 비었을 때 GameRoom 에서 호출 가능 (현재는 onClientDisconnected 에서 처리)
-     */
-    public synchronized void onRoomEmpty(GameRoom room) {
+    public synchronized void removeRoomIfEmpty(GameRoom room) {
         if (room.getPlayerCount() == 0) {
             rooms.remove(room.getRoomName());
             System.out.println("[SERVER] 방 제거: " + room.getRoomName());
@@ -171,16 +150,10 @@ public class GameServer {
     }
 
     /**
-     * 방 가져오기 또는 생성
+     * PlayerSession 정리용 (세션 종료 시 PlayerSession.run()의 finally 블록에서 호출)
      */
-    private synchronized GameRoom getOrCreateRoom(String roomName) {
-        GameRoom room = rooms.get(roomName);
-        if (room == null) {
-            room = new GameRoom(this, roomName);
-            rooms.put(roomName, room);
-            System.out.println("[SERVER] 새 방 생성: " + roomName);
-        }
-        return room;
+    public void removeSession(PlayerSession session) {
+        sessions.remove(session);
     }
 
     // ============================================================
