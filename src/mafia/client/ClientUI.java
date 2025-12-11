@@ -1,10 +1,16 @@
+package mafia.client;
+
+import mafia.client.ui.GamePanel;
+import mafia.client.ui.ServerConnectionPanel;
+import mafia.client.ui.WaitingGamePanel;
+
 import javax.swing.*;
 import java.awt.*;
 
 /**
  * 순수 UI 관리 클래스.
  * - JFrame / 패널 전환 등 화면 관련 처리만 담당
- * - 실제 네트워크/게임 상태는 Client / ClientGameState 가 담당
+ * - 실제 네트워크/게임 상태는 mafia.client.Client / mafia.client.ClientGameState 가 담당
  */
 public class ClientUI {
 

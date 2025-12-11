@@ -1,3 +1,7 @@
+package mafia.server.protocol;
+
+import mafia.Enum.MessageType;
+
 public class MessageCodec {
 
     // ===== 서버 → 클라이언트 수신 메시지 파싱 =====

@@ -1,3 +1,9 @@
+package mafia.server;
+
+import mafia.server.room.GameRoom;
+import mafia.server.room.PlayerSession;
+import mafia.Enum.PlayerStatus;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -6,7 +12,7 @@ import java.net.Socket;
 
 /**
  * 한 클라이언트 소켓을 담당하는 네트워크 레이어.
- * 문자열 프로토콜을 파싱해서 GameRoom 도메인에 위임.
+ * 문자열 프로토콜을 파싱해서 mafia.server.room.GameRoom 도메인에 위임.
  */
 public class ClientHandler implements Runnable {
 
@@ -55,7 +61,7 @@ public class ClientHandler implements Runnable {
                 System.out.println("경고: 첫 메시지가 NICKNAME: 형식이 아닙니다. message=" + firstLine);
             }
 
-            // 2) PlayerSession 생성 및 GameRoom 등록
+            // 2) mafia.server.room.PlayerSession 생성 및 mafia.server.room.GameRoom 등록
             session = room.addPlayer(this, nickname);
 
             // 3) 메인 메시지 루프

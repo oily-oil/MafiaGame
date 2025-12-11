@@ -1,3 +1,10 @@
+package mafia.client.ui;
+
+import mafia.Enum.GamePhase;
+import mafia.Enum.Role;
+import mafia.client.Client;
+import mafia.client.ClientGameState;
+
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
@@ -38,7 +45,7 @@ public class GamePanel extends JPanel {
         this.gameState = gameState;
 
         try {
-            java.net.URL imageUrl = getClass().getResource("/background.png");
+            java.net.URL imageUrl = getClass().getResource("/Images/background.png");
             if (imageUrl != null) {
                 backgroundImage = ImageIO.read(imageUrl);
             } else {
@@ -154,23 +161,23 @@ public class GamePanel extends JPanel {
 
     private BufferedImage loadProfileImage(String playerInfo) {
         String playerNumber = extractPlayerNumber(playerInfo);
-        String imageName = "unknown.png";
+        String imageName = "Images/unknown.png";
 
         Map<String, String> investigated = gameState.getInvestigatedRoles();
         String investigatedRole = investigated.get("P" + playerNumber);
 
         if (investigatedRole != null) {
             if (investigatedRole.equals("MAFIA")) {
-                imageName = "mafia.png";
+                imageName = "Images/mafia.png";
             } else {
-                imageName = "citizen.png";
+                imageName = "Images/citizen.png";
             }
         } else {
             Role myRole = gameState.getMyRole();
             String myPlayerInfo = "P" + gameState.getMyPlayerNumber() + " -";
 
             if (playerInfo.startsWith(myPlayerInfo) && myRole != null && myRole != Role.NONE) {
-                imageName = myRole.name().toLowerCase() + ".png";
+                imageName = "Images/" + myRole.name().toLowerCase() + ".png";
             }
         }
 
@@ -604,7 +611,7 @@ public class GamePanel extends JPanel {
 
         private static ImageIcon loadUnknownIcon() {
             try {
-                java.net.URL imageUrl = GamePanel.class.getResource("/unknown.png");
+                java.net.URL imageUrl = GamePanel.class.getResource("/Images/unknown.png");
                 if (imageUrl != null) {
                     Image img = ImageIO.read(imageUrl).getScaledInstance(40, 40, Image.SCALE_SMOOTH);
                     return new ImageIcon(img);

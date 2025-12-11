@@ -1,3 +1,8 @@
+package mafia.server;
+
+import mafia.server.room.GameRoom;
+import mafia.server.ui.ServerGUI;
+
 import javax.swing.*;
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -9,9 +14,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 서버 진입 클래스.
- * - ServerGUI 와 연결되어 포트 입력 후 서버 시작
+ * - mafia.server.ui.ServerGUI 와 연결되어 포트 입력 후 서버 시작
  * - 클라이언트 소켓 accept
- * - GameRoom 에서 실제 게임 규칙/진행 관리
+ * - mafia.server.room.GameRoom 에서 실제 게임 규칙/진행 관리
  */
 public class GameServer {
 

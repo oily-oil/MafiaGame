@@ -1,3 +1,5 @@
+package mafia.Enum;
+
 public enum MessageType {
     // 서버 → 클라이언트
     PLAYER_NUM,

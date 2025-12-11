@@ -1,3 +1,5 @@
+package mafia.server.ui;
+
 import javax.swing.*;
 import java.awt.*;
 import java.io.PrintStream;

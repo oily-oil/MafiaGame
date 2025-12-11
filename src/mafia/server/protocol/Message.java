@@ -1,3 +1,7 @@
+package mafia.server.protocol;
+
+import mafia.Enum.MessageType;
+
 public class Message {
     private final MessageType type;
     private final String raw;      // 전체 원본 문자열
@@ -23,7 +27,7 @@ public class Message {
 
     @Override
     public String toString() {
-        return "Message{" +
+        return "mafia.server.protocol.Message{" +
                 "type=" + type +
                 ", raw='" + raw + '\'' +
                 ", payload='" + payload + '\'' +

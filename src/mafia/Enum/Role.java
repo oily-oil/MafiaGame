@@ -1,4 +1,6 @@
-// Role.java
+package mafia.Enum;
+
+// mafia.Enum.Role.java
 public enum Role {
     CITIZEN, // 일반 시민
     MAFIA,

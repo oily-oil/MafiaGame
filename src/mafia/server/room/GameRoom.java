@@ -1,3 +1,10 @@
+package mafia.server.room;
+
+import mafia.Enum.GamePhase;
+import mafia.Enum.PlayerStatus;
+import mafia.Enum.Role;
+import mafia.server.ClientHandler;
+
 import java.util.*;
 
 /**

@@ -1,3 +1,7 @@
+package mafia.client.ui;
+
+import mafia.client.Client;
+
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;

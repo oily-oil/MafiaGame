@@ -1,3 +1,8 @@
+package mafia.client;
+
+import mafia.Enum.GamePhase;
+import mafia.Enum.Role;
+
 import java.util.HashMap;
 import java.util.Map;
 

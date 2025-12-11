@@ -1,3 +1,9 @@
+package mafia.server.room;
+
+import mafia.Enum.PlayerStatus;
+import mafia.Enum.Role;
+import mafia.server.ClientHandler;
+
 public class PlayerSession {
 
     private final int playerNumber;

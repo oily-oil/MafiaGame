@@ -1,3 +1,11 @@
+package mafia.client;
+
+import mafia.Enum.GamePhase;
+import mafia.Enum.Role;
+import mafia.server.protocol.Message;
+import mafia.server.protocol.MessageCodec;
+import mafia.Enum.MessageType;
+
 import javax.swing.*;
 import java.io.*;
 import java.net.Socket;
@@ -36,7 +44,7 @@ public class Client {
             gameState.setMyNickname(nickname);
 
             // 서버 수신 스레드 시작
-            new Thread(this::listenForMessages, "Client-Receive-Thread").start();
+            new Thread(this::listenForMessages, "mafia.client.Client-Receive-Thread").start();
 
             SwingUtilities.invokeLater(ui::showWaitingPanel);
 
