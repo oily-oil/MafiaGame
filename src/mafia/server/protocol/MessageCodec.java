@@ -33,6 +33,9 @@ public class MessageCodec {
     private static final String PREFIX_PLAYER_NUM    = "PLAYER_NUM:";
     private static final String PREFIX_ROLE          = "ROLE:"; // 레거시
 
+    // 새로 추가: 방 목록 전용 프리픽스
+    private static final String PREFIX_ROOM_LIST     = "ROOM_LIST:";
+
     // ===================== 서버 → 클라이언트 =====================
 
     public static Message parseServerToClient(String line) {
@@ -73,6 +76,15 @@ public class MessageCodec {
                 players.addAll(Arrays.asList(listStr.split(",")));
             }
             return Message.playersList(raw, players);
+        }
+
+        // 🔹 방 목록: ROOM_LIST:Lobby (2명),Room1 (3명)
+        //   → SYSTEM 메시지로 감싸서 Client.handleSystemMessage 의
+        //     [ROOM_LIST] 처리 로직을 그대로 재사용
+        if (line.startsWith(PREFIX_ROOM_LIST)) {
+            String payload = line.substring(PREFIX_ROOM_LIST.length()).trim(); // "Lobby (2명),Room1 (3명)"
+            String content = "[ROOM_LIST] " + payload;
+            return Message.simple(MessageType.SYSTEM, raw, content);
         }
 
         if (line.startsWith("START_GAME")) {

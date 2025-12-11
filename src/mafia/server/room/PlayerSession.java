@@ -170,7 +170,7 @@ public class PlayerSession implements Runnable {
                 }
                 else {
                     send("SYSTEM:알 수 없는 명령어입니다.");
-                    send("SYSTEM: 명령어"+msg);
+                    send("SYSTEM: 명령어" + msg);
                 }
             }
         } catch (IOException e) {
@@ -217,7 +217,10 @@ public class PlayerSession implements Runnable {
 
             currentRoom = room;
             room.addPlayer(this);
-            send("SYSTEM:방 '" + roomName + "' 을(를) 생성하고 입장했습니다.");
+
+            // 🔹 클라이언트가 [방이동] 패턴을 통해 currentRoomName 을 갱신할 수 있도록
+            //    메시지 형식을 통일
+            send("SYSTEM:[방이동] '" + roomName + "' 방을 생성하고 입장했습니다.");
             return;
         }
 
@@ -241,7 +244,9 @@ public class PlayerSession implements Runnable {
 
             currentRoom = room;
             room.addPlayer(this);
-            send("SYSTEM:방 '" + roomName + "' 에 입장했습니다.");
+
+            // 🔹 방 이동 메시지
+            send("SYSTEM:[방이동] '" + roomName + "' 방에 입장했습니다.");
             return;
         }
 

@@ -20,7 +20,9 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
 
 /**
  * 클라이언트 메인 클래스.
@@ -42,9 +44,10 @@ public class Client {
     private WaitingGamePanel waitingGamePanel;
     private GamePanel gamePanel;
 
+    // 순수 도메인 상태
     private final ClientGameState gameState;
 
-    // 게임 상태
+    // ====== 로컬 캐시 (실제 로직은 gameState 기반으로 동작) ======
     private volatile boolean inGame = false;
     private volatile boolean alive = true;
     private Role myRole = Role.NONE;
@@ -57,11 +60,6 @@ public class Client {
 
     // 현재 방 이름 (자동 접속 Lobby 가 기본)
     private String currentRoomName = "Lobby";
-
-    // MARK_TARGET:P3
-    private volatile String markedPlayer = "";
-    // MARK_ROLE:P3:MAFIA -> 경찰 조사 결과
-    private final Map<String, String> investigatedRoles = new HashMap<>();
 
     public Client() {
         frame = new JFrame("마피아 게임 클라이언트");
@@ -89,8 +87,14 @@ public class Client {
 
         this.isHost = false;
         this.isReady = false;
-        this.investigatedRoles.clear();
         this.currentRoomName = "Lobby";
+
+        // 클라이언트 도메인 상태 초기화
+        gameState.resetForNewConnection(nickname);
+        this.inGame = false;
+        this.alive = true;
+        this.myRole = Role.NONE;
+        this.myPlayerNumber = 0;
 
         try {
             socket = new Socket(host, port);
@@ -141,6 +145,7 @@ public class Client {
             case PLAYER_NUM:
                 if (msg.getPlayerNumber() != null) {
                     this.myPlayerNumber = msg.getPlayerNumber();
+                    gameState.setMyPlayerNumber(this.myPlayerNumber);
                 }
                 break;
 
@@ -152,7 +157,7 @@ public class Client {
 
             case PLAYERS_LIST:
                 List<String> players = msg.getPlayers();
-                if (!inGame) {
+                if (!gameState.isInGame()) {
                     waitingGamePanel.updatePlayerList(players);
                 } else {
                     gamePanel.updatePlayerList(players);
@@ -162,14 +167,17 @@ public class Client {
 
             case START_GAME:
                 inGame = true;
-                markedPlayer = "";
-                investigatedRoles.clear();
+                gameState.setInGame(true);
+                gameState.setMarkedPlayer("");
+                gameState.getInvestigatedRoles().clear();
+
                 showGamePanel();
                 gamePanel.appendChatMessage("시스템", "게임이 시작되었습니다.", false);
                 break;
 
             case YOU_DIED:
                 alive = false;
+                gameState.setAlive(false);
                 gamePanel.appendChatMessage("시스템", "⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.", false);
                 break;
 
@@ -192,18 +200,19 @@ public class Client {
 
             case MARK_TARGET:
                 if (msg.getPlayerNumber() != null && msg.getPlayerNumber() > 0) {
-                    markedPlayer = "P" + msg.getPlayerNumber();
+                    String mark = "P" + msg.getPlayerNumber();
+                    gameState.setMarkedPlayer(mark);
                     gamePanel.updatePlayerMarks();
                 }
                 break;
 
             case MARK_ROLE:
-                if (myRole == Role.POLICE &&
+                if (gameState.getMyRole() == Role.POLICE &&
                         msg.getPlayerNumber() != null &&
                         msg.getRole() != null) {
                     String key = "P" + msg.getPlayerNumber();
                     String value = (msg.getRole() == Role.MAFIA) ? "MAFIA" : "CITIZEN";
-                    investigatedRoles.put(key, value);
+                    gameState.getInvestigatedRoles().put(key, value);
                     gamePanel.updatePlayerMarks();
                 }
                 break;
@@ -232,7 +241,6 @@ public class Client {
                 }
             }
             waitingGamePanel.updateRoomList(rooms);
-            // 채팅창에는 따로 안 찍음
             return;
         }
 
@@ -245,7 +253,6 @@ public class Client {
                 currentRoomName = systemMsg.substring(s + 1, e);
             }
             waitingGamePanel.updateButtons(isHost, isReady, isInLobby());
-            // 채팅에도 보여주고 싶으면 아래 append 유지
             waitingGamePanel.appendChatMessage(systemMsg);
             return;
         }
@@ -254,10 +261,14 @@ public class Client {
         if (systemMsg.equals("HOST_GRANTED")) {
             isHost = true;
             isReady = true;
+            gameState.setHost(true);
+            gameState.setReady(true);
             waitingGamePanel.updateButtons(true, true, isInLobby());
         } else if (systemMsg.equals("GUEST_GRANTED")) {
             isHost = false;
             isReady = false;
+            gameState.setHost(false);
+            gameState.setReady(false);
             waitingGamePanel.updateButtons(false, false, isInLobby());
         }
 
@@ -272,12 +283,13 @@ public class Client {
                 } catch (IllegalArgumentException e) {
                     myRole = Role.NONE;
                 }
+                gameState.setMyRole(myRole);
                 gamePanel.updateMyRoleDisplay(myRole);
             }
         }
 
         // --- 실제 메시지 출력 ---
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(systemMsg);
         } else {
             gamePanel.appendChatMessage("시스템", systemMsg, false);
@@ -295,7 +307,7 @@ public class Client {
         else if (msg.getType() == MessageType.CHAT_DEAD)  chatType = "DEAD";
         else                                              chatType = "NORMAL";
 
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(message);
         } else {
             gamePanel.appendChatMessage(sender, message, isMyMessage, chatType);
@@ -303,7 +315,7 @@ public class Client {
     }
 
     private void handleGeneralMessage(String raw) {
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(raw);
         } else {
             gamePanel.appendChatMessage("시스템", raw, false);
@@ -345,12 +357,12 @@ public class Client {
         }
 
         String chatPrefix;
-        if (!alive) {
+        if (!gameState.isAlive()) {
             chatPrefix = "CHAT_DEAD:";
         } else {
             GamePhase phase = gamePanel.getCurrentPhase();
-            if (inGame && phase == GamePhase.NIGHT) {
-                if (myRole == Role.MAFIA) {
+            if (gameState.isInGame() && phase == GamePhase.NIGHT) {
+                if (gameState.getMyRole() == Role.MAFIA) {
                     chatPrefix = "CHAT_MAFIA:";
                 } else {
                     gamePanel.appendChatMessage("시스템", "경고: 밤에는 마피아만 대화 가능합니다.", false);
@@ -369,7 +381,7 @@ public class Client {
         else if (chatPrefix.equals("CHAT_MAFIA:")) localType = "MAFIA";
         else                                       localType = "NORMAL";
 
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(msg);
         } else {
             gamePanel.appendChatMessage(myNickname, msg, true, localType);
@@ -378,7 +390,7 @@ public class Client {
 
     // ====== 방 관련 명령 ======
 
-    /** 방 목록 요청: 서버에 "/room" 전송 */
+    /** 방 목록 요청: 서버에 "/room list" 전송 */
     public void requestRoomList() {
         sendMessage("/room list");
     }
@@ -421,15 +433,16 @@ public class Client {
     private void resetToLobby() {
         boolean wasHost = this.isHost;
 
-        inGame = false;
-        alive = true;
-        myRole = Role.NONE;
-        markedPlayer = "";
-        investigatedRoles.clear();
+        this.inGame = false;
+        this.alive = true;
+        this.myRole = Role.NONE;
         this.myPlayerNumber = 0;
 
         this.isReady = wasHost;
         this.currentRoomName = "Lobby";
+
+        // 도메인 상태도 함께 정리
+        gameState.resetForLobbyAfterGame(wasHost);
 
         SwingUtilities.invokeLater(() -> {
             gamePanel.clearGameState();
@@ -441,30 +454,30 @@ public class Client {
         });
     }
 
-    // ==================== GamePanel 에서 사용하는 helper ====================
+    // ==================== GamePanel / 다른 코드에서 사용하는 helper ====================
 
     public boolean hasAbility() {
-        return myRole == Role.MAFIA || myRole == Role.POLICE || myRole == Role.DOCTOR;
+        return gameState.hasAbility();
     }
 
     public boolean isAlive() {
-        return alive;
+        return gameState.isAlive();
     }
 
     public int getMyPlayerNumber() {
-        return myPlayerNumber;
+        return gameState.getMyPlayerNumber();
     }
 
     public String getMarkedPlayer() {
-        return markedPlayer;
+        return gameState.getMarkedPlayer();
     }
 
     public Map<String, String> getInvestigatedRoles() {
-        return investigatedRoles;
+        return gameState.getInvestigatedRoles();
     }
 
     public Role getMyRole() {
-        return myRole;
+        return gameState.getMyRole();
     }
 
     /** "P3 - 닉네임 ..." 에서 3 추출 */
