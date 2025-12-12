@@ -27,6 +27,8 @@ import java.util.*;
  *  - 서버와의 네트워크 연결
  *  - MessageCodec.parseServerToClient 로 서버 메시지 해석
  *  - UI 패널과 상태 연동
+ *
+ *  상태의 실제 소스는 ClientGameState 에 둔다.
  */
 public class Client {
 
@@ -42,16 +44,10 @@ public class Client {
     private WaitingGamePanel waitingGamePanel;
     private GamePanel gamePanel;
 
-    // 게임 상태(도메인) 객체
     private final ClientGameState gameState;
 
-    // Client 내부에서만 쓰는 상태(네트워크/로직 편의용)
-    private volatile boolean inGame = false;
-    private volatile boolean alive = true;
-    private Role myRole = Role.NONE;
-
+    // UI/부가 상태
     private String myNickname = "";
-    private int myPlayerNumber = 0;
 
     private boolean isHost = false;
     private boolean isReady = false;
@@ -68,6 +64,7 @@ public class Client {
 
         connectionPanel = new ServerConnectionPanel(this);
         waitingGamePanel = new WaitingGamePanel(this);
+        waitingGamePanel.setCurrentRoomName(currentRoomName);
         gamePanel = new GamePanel(this, gameState);
 
         frame.getContentPane().setLayout(new BorderLayout());
@@ -83,12 +80,13 @@ public class Client {
         this.port = port;
         this.myNickname = nickname;
 
+        // 클라이언트 게임 상태 초기화
+        gameState.resetForNewConnection(nickname);
+
         this.isHost = false;
         this.isReady = false;
         this.currentRoomName = "Lobby";
-
-        // 🔹 도메인 상태 리셋
-        gameState.resetForNewConnection(nickname);
+        waitingGamePanel.setCurrentRoomName(currentRoomName);
 
         try {
             socket = new Socket(host, port);
@@ -102,6 +100,9 @@ public class Client {
             new Thread(this::listenForMessages, "Client-Listen-Thread").start();
 
             SwingUtilities.invokeLater(this::showWaitingPanel);
+
+            // 🔹 Lobby 자동 입장 후, 한 번 방 목록 요청
+            requestRoomList();
 
         } catch (IOException e) {
             try { if (socket != null) socket.close(); } catch (Exception ignored) {}
@@ -127,7 +128,6 @@ public class Client {
             try { if (socket != null) socket.close(); } catch (Exception ignored) {}
             SwingUtilities.invokeLater(() -> {
                 JOptionPane.showMessageDialog(frame, "서버 연결이 끊겼습니다.");
-                // 서버 연결 끊길 때는 진짜 로비(초기 상태)로 리셋
                 resetToLobby();
             });
         }
@@ -139,8 +139,7 @@ public class Client {
         switch (type) {
             case PLAYER_NUM:
                 if (msg.getPlayerNumber() != null) {
-                    this.myPlayerNumber = msg.getPlayerNumber();
-                    gameState.setMyPlayerNumber(myPlayerNumber);
+                    gameState.setMyPlayerNumber(msg.getPlayerNumber());
                 }
                 break;
 
@@ -150,25 +149,20 @@ public class Client {
                 }
                 break;
 
-            case PLAYERS_LIST: {
+            case PLAYERS_LIST:
                 List<String> players = msg.getPlayers();
-                if (!inGame) {
+                if (!gameState.isInGame()) {
                     waitingGamePanel.updatePlayerList(players);
                 } else {
                     gamePanel.updatePlayerList(players);
                     gamePanel.updatePlayerMarks();
                 }
                 break;
-            }
 
             case START_GAME:
-                inGame = true;
-                alive = true;
-                myRole = Role.NONE;
-
+                // 게임 시작 상태 세팅
                 gameState.setInGame(true);
                 gameState.setAlive(true);
-                gameState.setMyRole(Role.NONE);
                 gameState.setMarkedPlayer("");
                 gameState.getInvestigatedRoles().clear();
 
@@ -177,20 +171,16 @@ public class Client {
                 break;
 
             case YOU_DIED:
-                alive = false;
                 gameState.setAlive(false);
                 gamePanel.appendChatMessage("시스템", "⚠ 당신은 사망했습니다. 관전자 모드로 전환됩니다.", false);
                 break;
 
-            case GAME_OVER: {
+            case GAME_OVER:
                 String content = msg.getText() != null ? msg.getText() : "";
                 gamePanel.appendChatMessage("시스템", "[게임 종료] " + content, false);
                 JOptionPane.showMessageDialog(frame, "게임이 종료되었습니다: " + content);
-                // 🔹 게임이 끝나도 자신이 속했던 방에 그대로 남아 있어야 하므로
-                //    로비로 보내지 않고, 현재 방의 "대기 상태"로만 리셋
-                resetAfterGameOver();
+                resetToLobby();
                 break;
-            }
 
             case SYSTEM:
                 handleSystemMessage(msg.getText());
@@ -204,16 +194,21 @@ public class Client {
 
             case MARK_TARGET:
                 if (msg.getPlayerNumber() != null && msg.getPlayerNumber() > 0) {
-                    String target = "P" + msg.getPlayerNumber();
-                    gameState.setMarkedPlayer(target);
+                    String p = "P" + msg.getPlayerNumber();
+                    gameState.setMarkedPlayer(p);
                     gamePanel.updatePlayerMarks();
                 }
                 break;
 
             case MARK_ROLE:
-                if (msg.getPlayerNumber() != null && msg.getRole() != null) {
+                // 🔹 경찰에게만 조사 결과 반영
+                if (gameState.getMyRole() == Role.POLICE &&
+                        msg.getPlayerNumber() != null &&
+                        msg.getRole() != null) {
+
                     String key = "P" + msg.getPlayerNumber();
                     String value = (msg.getRole() == Role.MAFIA) ? "MAFIA" : "CITIZEN";
+
                     gameState.getInvestigatedRoles().put(key, value);
                     gamePanel.updatePlayerMarks();
                 }
@@ -231,7 +226,7 @@ public class Client {
         if (systemMsg == null) systemMsg = "";
 
         // --- 방 목록(ROOM_LIST) 처리 ---
-        // 예: [ROOM_LIST] Lobby (2명),Room1 (3명)
+        // (이 부분은 이전에 이미 잘 작동하고 있다고 하셨으니 그대로 유지)
         if (systemMsg.startsWith("[ROOM_LIST]")) {
             String payload = systemMsg.substring("[ROOM_LIST]".length()).trim();
             List<String> rooms = new ArrayList<>();
@@ -243,7 +238,6 @@ public class Client {
                 }
             }
             waitingGamePanel.updateRoomList(rooms);
-            // 채팅창에는 따로 안 찍음
             return;
         }
 
@@ -255,8 +249,12 @@ public class Client {
             if (s >= 0 && e > s) {
                 currentRoomName = systemMsg.substring(s + 1, e);
             }
+            waitingGamePanel.setCurrentRoomName(currentRoomName);
             waitingGamePanel.updateButtons(isHost, isReady, isInLobby());
             waitingGamePanel.appendChatMessage(systemMsg);
+
+            // 방 이동 직후, 내 기준으로 방 목록 다시 요청 → 내 방 버튼 비활성/표시 동기화
+            requestRoomList();
             return;
         }
 
@@ -281,18 +279,21 @@ public class Client {
             int end   = systemMsg.lastIndexOf('\'');
             if (start > 0 && end > start) {
                 String roleName = systemMsg.substring(start, end).toUpperCase();
+                Role role;
                 try {
-                    myRole = Role.valueOf(roleName);
+                    role = Role.valueOf(roleName);
                 } catch (IllegalArgumentException e) {
-                    myRole = Role.NONE;
+                    role = Role.NONE;
                 }
-                gameState.setMyRole(myRole);
-                gamePanel.updateMyRoleDisplay(myRole);
+
+                // 🔹 상태를 ClientGameState 에 반영
+                gameState.setMyRole(role);
+                gamePanel.updateMyRoleDisplay(role);
             }
         }
 
         // --- 실제 메시지 출력 ---
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(systemMsg);
         } else {
             gamePanel.appendChatMessage("시스템", systemMsg, false);
@@ -310,7 +311,7 @@ public class Client {
         else if (msg.getType() == MessageType.CHAT_DEAD)  chatType = "DEAD";
         else                                              chatType = "NORMAL";
 
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(message);
         } else {
             gamePanel.appendChatMessage(sender, message, isMyMessage, chatType);
@@ -318,7 +319,7 @@ public class Client {
     }
 
     private void handleGeneralMessage(String raw) {
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(raw);
         } else {
             gamePanel.appendChatMessage("시스템", raw, false);
@@ -354,24 +355,29 @@ public class Client {
         msg = msg.trim();
         if (msg.isEmpty()) return;
 
+        // 명령
         if (msg.startsWith("/")) {
             out.println(msg);
             return;
         }
 
+        // 채팅
         String chatPrefix;
-        if (!alive) {
+        if (!gameState.isAlive()) {
+            // 사망자 채팅
             chatPrefix = "CHAT_DEAD:";
         } else {
             GamePhase phase = gamePanel.getCurrentPhase();
-            if (inGame && phase == GamePhase.NIGHT) {
-                if (myRole == Role.MAFIA) {
+            if (gameState.isInGame() && phase == GamePhase.NIGHT) {
+                // 밤 채팅 → 마피아만
+                if (gameState.getMyRole() == Role.MAFIA) {
                     chatPrefix = "CHAT_MAFIA:";
                 } else {
                     gamePanel.appendChatMessage("시스템", "경고: 밤에는 마피아만 대화 가능합니다.", false);
                     return;
                 }
             } else {
+                // 일반 낮/대기 채팅
                 chatPrefix = "CHAT:";
             }
         }
@@ -384,7 +390,7 @@ public class Client {
         else if (chatPrefix.equals("CHAT_MAFIA:")) localType = "MAFIA";
         else                                       localType = "NORMAL";
 
-        if (!inGame) {
+        if (!gameState.isInGame()) {
             waitingGamePanel.appendChatMessage(msg);
         } else {
             gamePanel.appendChatMessage(myNickname, msg, true, localType);
@@ -398,7 +404,7 @@ public class Client {
         sendMessage("/room list");
     }
 
-    /** 특정 방으로 이동(없으면 생성 후 입장) */
+    /** 특정 방으로 이동 */
     public void joinRoom(String roomName) {
         if (roomName == null) return;
         roomName = roomName.trim();
@@ -434,62 +440,32 @@ public class Client {
     }
 
     /**
-     * 서버 연결이 끊겼거나, 정말로 “전체 리셋”이 필요할 때 사용.
-     * - 방도 잊고, Lobby 기준 상태로 초기화
+     * 게임이 종료되었을 때 호출.
+     *  - Lobby 로 강제 이동시키지 않고, 서버에서 유지하는 "현재 방"을 그대로 사용
+     *  - 클라이언트 UI만 대기 화면으로 되돌린다.
      */
     private void resetToLobby() {
         boolean wasHost = this.isHost;
 
-        inGame = false;
-        alive = true;
-        myRole = Role.NONE;
-        this.myPlayerNumber = 0;
-
-        this.isReady = wasHost;
-        this.currentRoomName = "Lobby";
-
-        gameState.resetForNewConnection(myNickname);
-        gameState.setHost(wasHost);
-        gameState.setReady(wasHost);
-
-        SwingUtilities.invokeLater(() -> {
-            gamePanel.clearGameState();
-            gamePanel.updateMyRoleDisplay(Role.NONE);
-
-            showWaitingPanel();
-            waitingGamePanel.clearDisplay();
-            waitingGamePanel.updateButtons(wasHost, this.isReady, true);
-        });
-    }
-
-    /**
-     * 게임이 끝났을 때 사용.
-     * - 방은 그대로 유지 (currentRoomName 그대로)
-     * - 게임 관련 상태만 초기화하고, 해당 방의 대기 상태로 돌아감
-     */
-    private void resetAfterGameOver() {
-        boolean wasHost = this.isHost;
-
-        inGame = false;
-        alive = true;
-        myRole = Role.NONE;
-        // 플레이어 번호, 방 이름은 유지
-        this.isReady = wasHost; // 서버에서도 endGame 시 방장은 ready, 나머지는 대기로 설정
-
+        // ClientGameState 쪽으로 전체 초기화 위임
         gameState.resetForLobbyAfterGame(wasHost);
 
+        // host/ready 플래그는 gameState 기준으로 다시 동기화
+        this.isHost = gameState.isHost();
+        this.isReady = gameState.isReady();
+
         SwingUtilities.invokeLater(() -> {
             gamePanel.clearGameState();
             gamePanel.updateMyRoleDisplay(Role.NONE);
 
             showWaitingPanel();
             waitingGamePanel.clearDisplay();
-            // 🔹 여기서 isInLobby()는 currentRoomName 기준으로 판단
-            waitingGamePanel.updateButtons(wasHost, this.isReady, isInLobby());
+            waitingGamePanel.setCurrentRoomName(currentRoomName);
+            waitingGamePanel.updateButtons(isHost, isReady, isInLobby());
         });
     }
 
-    // ==================== GamePanel 에서 사용하는 helper ====================
+    // ==================== GamePanel / 외부용 helper ====================
 
     public boolean hasAbility() {
         return gameState.hasAbility();

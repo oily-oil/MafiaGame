@@ -2,18 +2,13 @@ package mafia.client.ui;
 
 import mafia.client.Client;
 
-import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
 import java.util.List;
 
 public class WaitingGamePanel extends JPanel {
 
     private final Client client;
-
-    // 배경 이미지
-    private Image backgroundImage;
 
     // 로비/채팅 표시 영역
     private JTextArea displayArea;
@@ -29,49 +24,50 @@ public class WaitingGamePanel extends JPanel {
     private JButton joinRoomButton;        // 방 입장 버튼
     private JButton createRoomButton;      // 방 생성 버튼
 
+    // 현재 내가 속한 방 이름 (Lobby 포함)
+    private String currentRoomName = "Lobby";
+
+    // 배경 이미지
+    private Image backgroundImage;
+
     public WaitingGamePanel(Client client) {
         this.client = client;
 
-        // ===== 배경 이미지 로드 =====
+        // 배경 이미지 로드
         try {
-            java.net.URL imageUrl = getClass().getResource("/Images/background.png");
-            if (imageUrl != null) {
-                backgroundImage = ImageIO.read(imageUrl);
-            } else {
-                System.err.println("경고: /Images/background.png 를 찾을 수 없습니다.");
-            }
-        } catch (IOException e) {
-            System.err.println("WaitingGamePanel 배경 이미지 로드 실패");
-            e.printStackTrace();
+            backgroundImage = new ImageIcon(
+                    getClass().getResource("/images/background.png")
+            ).getImage();
+        } catch (Exception e) {
+            backgroundImage = null;
         }
 
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        setOpaque(false); // 배경 이미지를 직접 그릴 것이므로 투명
+        setOpaque(false);
 
         // ===== 상단 타이틀 =====
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         topPanel.setOpaque(false);
-        JLabel titleLabel = new JLabel("로비 / 방 목록");
-        titleLabel.setFont(new Font("맑은 고딕", Font.BOLD, 16));
-        topPanel.add(titleLabel);
+        topPanel.add(new JLabel("로비 상태 및 채팅 / 방 목록:"));
         add(topPanel, BorderLayout.NORTH);
 
         // ===== 중앙: 왼쪽 채팅 + 오른쪽 방 목록 =====
 
-        // 왼쪽: 채팅 / 플레이어 목록 텍스트 박스
+        // 왼쪽: 채팅 / 플레이어 목록 텍스트
         displayArea = new JTextArea("서버에 연결하세요...");
         displayArea.setEditable(false);
         displayArea.setLineWrap(true);
         displayArea.setWrapStyleWord(true);
-        displayArea.setFont(new Font("맑은 고딕", Font.PLAIN, 12));
-        displayArea.setBackground(new Color(255, 255, 255, 230)); // 약간 투명한 흰색
-        displayArea.setMargin(new Insets(5, 5, 5, 5));
+        displayArea.setBackground(new Color(0, 0, 0, 140));
+        displayArea.setForeground(Color.WHITE);
 
         JScrollPane chatScrollPane = new JScrollPane(displayArea);
-        chatScrollPane.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200)));
-        chatScrollPane.getViewport().setOpaque(false);
         chatScrollPane.setOpaque(false);
+        chatScrollPane.getViewport().setOpaque(false);
+        chatScrollPane.setBorder(
+                BorderFactory.createTitledBorder("채팅 / 플레이어 목록")
+        );
 
         // 오른쪽: 방 목록
         roomListPanel = new JPanel();
@@ -81,27 +77,20 @@ public class WaitingGamePanel extends JPanel {
 
         roomListScroll = new JScrollPane(roomListPanel);
         roomListScroll.setPreferredSize(new Dimension(220, 0));
-        roomListScroll.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200)));
-        roomListScroll.getViewport().setOpaque(false);
         roomListScroll.setOpaque(false);
-
-        JPanel roomListContainer = new JPanel(new BorderLayout());
-        roomListContainer.setOpaque(false);
-
-        JLabel roomListLabel = new JLabel("방 목록", SwingConstants.CENTER);
-        roomListLabel.setFont(new Font("맑은 고딕", Font.BOLD, 13));
-        roomListLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
-        roomListContainer.add(roomListLabel, BorderLayout.NORTH);
-        roomListContainer.add(roomListScroll, BorderLayout.CENTER);
+        roomListScroll.getViewport().setOpaque(false);
+        roomListScroll.setBorder(
+                BorderFactory.createTitledBorder("방 목록")
+        );
 
         JPanel centerPanel = new JPanel(new BorderLayout(10, 0));
         centerPanel.setOpaque(false);
         centerPanel.add(chatScrollPane, BorderLayout.CENTER);
-        centerPanel.add(roomListContainer, BorderLayout.EAST);
+        centerPanel.add(roomListScroll, BorderLayout.EAST);
 
         add(centerPanel, BorderLayout.CENTER);
 
-        // ===== 하단: 준비/시작 + 방 생성 =====
+        // ===== 하단: 준비/시작 + 방 생성/입장 =====
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setOpaque(false);
         add(bottomPanel, BorderLayout.SOUTH);
@@ -125,7 +114,6 @@ public class WaitingGamePanel extends JPanel {
         // (2) 방 생성 / 입장 영역
         JPanel roomCreatePanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         roomCreatePanel.setOpaque(false);
-
         roomCreatePanel.add(new JLabel("방 이름:"));
 
         roomNameField = new JTextField(10);
@@ -152,13 +140,13 @@ public class WaitingGamePanel extends JPanel {
         bottomPanel.add(roomCreatePanel, BorderLayout.SOUTH);
     }
 
-    // ===================== 배경 이미지 그리기 =====================
+    // ===================== 방 이름 동기화 =====================
 
-    @Override
-    protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        if (backgroundImage != null) {
-            g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+    public void setCurrentRoomName(String roomName) {
+        if (roomName == null || roomName.isEmpty()) {
+            this.currentRoomName = "Lobby";
+        } else {
+            this.currentRoomName = roomName;
         }
     }
 
@@ -228,7 +216,7 @@ public class WaitingGamePanel extends JPanel {
     }
 
     public void clearDisplay() {
-        displayArea.setText("--- 게임이 종료되었습니다. 로비 상태로 돌아왔습니다. ---\n");
+        displayArea.setText("--- 대기 상태로 돌아왔습니다. ---\n");
         displayArea.setCaretPosition(displayArea.getDocument().getLength());
     }
 
@@ -239,6 +227,8 @@ public class WaitingGamePanel extends JPanel {
      * 오른쪽 방 버튼 목록을 갱신한다.
      *
      * 예: items = ["Lobby (2명)", "Room1 (3명)"]
+     *
+     * 현재 내가 속한 방(currentRoomName)은 버튼을 비활성(선택 불가) 처리.
      */
     public void updateRoomList(List<String> items) {
         roomListPanel.removeAll();
@@ -263,8 +253,17 @@ public class WaitingGamePanel extends JPanel {
                 roomButton.setAlignmentX(Component.CENTER_ALIGNMENT);
                 roomButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
 
-                final String finalRoomName = roomName;
-                roomButton.addActionListener(e -> client.joinRoom(finalRoomName));
+                boolean isMyRoom = roomName.equals(currentRoomName);
+
+                if (isMyRoom) {
+                    // 내가 속한 방: 선택 불가능 + 살짝 시각적으로 구분
+                    roomButton.setEnabled(false);
+                    roomButton.setText(displayText + "  [현재]");
+                } else {
+                    roomButton.setEnabled(true);
+                    final String finalRoomName = roomName;
+                    roomButton.addActionListener(e -> client.joinRoom(finalRoomName));
+                }
 
                 roomListPanel.add(roomButton);
                 roomListPanel.add(Box.createVerticalStrut(5));
@@ -273,5 +272,16 @@ public class WaitingGamePanel extends JPanel {
 
         roomListPanel.revalidate();
         roomListPanel.repaint();
+    }
+
+    // ===================== 배경 그리기 =====================
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        if (backgroundImage != null) {
+            g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+        } else {
+            super.paintComponent(g);
+        }
     }
 }
