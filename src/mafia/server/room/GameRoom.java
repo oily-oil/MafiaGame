@@ -66,6 +66,14 @@ public class GameRoom {
         return players.size();
     }
 
+    /**
+     * 새로운 플레이어가 이 방에 입장 가능한지 여부.
+     *  - WAITING 상태에서만 true
+     */
+    public synchronized boolean isJoinable() {
+        return currentPhase == GamePhase.WAITING;
+    }
+
     // ================== 플레이어 입장/퇴장 ==================
 
     public synchronized void addPlayer(PlayerSession session) {
@@ -89,6 +97,9 @@ public class GameRoom {
 
         broadcast("SYSTEM:" + formatPlayer(session) + " 님이 방 '" + roomName + "' 에 입장했습니다.");
         broadcastPlayerList();
+
+        // 방 인원 변화 → 전체 방 목록 갱신
+        server.broadcastRoomListToAll();
     }
 
     public synchronized void removePlayer(PlayerSession session) {
@@ -112,6 +123,9 @@ public class GameRoom {
         }
 
         broadcastPlayerList();
+
+        // 인원 감소 → 방 목록 갱신
+        server.broadcastRoomListToAll();
     }
 
     private void assignNewHost() {
@@ -247,6 +261,7 @@ public class GameRoom {
     private synchronized void scheduleDayNightTimer() {
         currentPhaseTimeLeft = PHASE_TIME_SECONDS;
 
+        // (기존 구조 유지: 새로운 스케줄러를 만들지만, currentPhase로 흐름 제어)
         phaseScheduler.shutdownNow();
         final GamePhase startingPhase = currentPhase;
 
@@ -460,8 +475,8 @@ public class GameRoom {
 
             nightInvestigateUser = police;
 
-            // POLICE 클라이언트에게만 의미가 있지만, 단순화를 위해 전체 broadcast
-            broadcast("MARK_ROLE:P" + target.getPlayerNumber() + ":" + roleResult);
+            // 🔹 조사 결과는 "경찰 본인에게만" 전송 (클라는 myRole == POLICE 일 때만 해석)
+            police.send("MARK_ROLE:P" + target.getPlayerNumber() + ":" + roleResult);
 
         } catch (Exception e) {
             police.send("SYSTEM:잘못된 명령어입니다. 예: /skill 2");
@@ -571,6 +586,9 @@ public class GameRoom {
             p.send("GAME_OVER " + resultText);
         }
         broadcastPlayerList();
+
+        // 게임이 끝났으니 다시 입장 가능한 상태 → 방 목록 갱신
+        server.broadcastRoomListToAll();
     }
 
     // ================== Broadcast 유틸 ==================

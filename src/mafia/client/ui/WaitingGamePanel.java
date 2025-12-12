@@ -2,13 +2,18 @@ package mafia.client.ui;
 
 import mafia.client.Client;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.util.List;
 
 public class WaitingGamePanel extends JPanel {
 
     private final Client client;
+
+    // 배경 이미지
+    private Image backgroundImage;
 
     // 로비/채팅 표시 영역
     private JTextArea displayArea;
@@ -21,55 +26,89 @@ public class WaitingGamePanel extends JPanel {
     private JPanel roomListPanel;          // 방 버튼들이 들어갈 패널
     private JScrollPane roomListScroll;    // 방 목록 스크롤
     private JTextField roomNameField;      // 새 방 이름 입력
-    private JButton createRoomButton;      // 방 생성/입장 버튼
-
-    // 방 목록 자동 갱신 타이머
-    private Timer roomListTimer;
+    private JButton joinRoomButton;        // 방 입장 버튼
+    private JButton createRoomButton;      // 방 생성 버튼
 
     public WaitingGamePanel(Client client) {
         this.client = client;
 
+        // ===== 배경 이미지 로드 =====
+        try {
+            java.net.URL imageUrl = getClass().getResource("/Images/background.png");
+            if (imageUrl != null) {
+                backgroundImage = ImageIO.read(imageUrl);
+            } else {
+                System.err.println("경고: /Images/background.png 를 찾을 수 없습니다.");
+            }
+        } catch (IOException e) {
+            System.err.println("WaitingGamePanel 배경 이미지 로드 실패");
+            e.printStackTrace();
+        }
+
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setOpaque(false); // 배경 이미지를 직접 그릴 것이므로 투명
 
         // ===== 상단 타이틀 =====
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        topPanel.add(new JLabel("로비 상태 및 채팅 / 방 목록:"));
+        topPanel.setOpaque(false);
+        JLabel titleLabel = new JLabel("로비 / 방 목록");
+        titleLabel.setFont(new Font("맑은 고딕", Font.BOLD, 16));
+        topPanel.add(titleLabel);
         add(topPanel, BorderLayout.NORTH);
 
         // ===== 중앙: 왼쪽 채팅 + 오른쪽 방 목록 =====
-        // 왼쪽: 채팅 / 플레이어 목록 텍스트
+
+        // 왼쪽: 채팅 / 플레이어 목록 텍스트 박스
         displayArea = new JTextArea("서버에 연결하세요...");
         displayArea.setEditable(false);
+        displayArea.setLineWrap(true);
+        displayArea.setWrapStyleWord(true);
+        displayArea.setFont(new Font("맑은 고딕", Font.PLAIN, 12));
+        displayArea.setBackground(new Color(255, 255, 255, 230)); // 약간 투명한 흰색
+        displayArea.setMargin(new Insets(5, 5, 5, 5));
+
         JScrollPane chatScrollPane = new JScrollPane(displayArea);
+        chatScrollPane.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200)));
+        chatScrollPane.getViewport().setOpaque(false);
+        chatScrollPane.setOpaque(false);
 
         // 오른쪽: 방 목록
         roomListPanel = new JPanel();
         roomListPanel.setLayout(new BoxLayout(roomListPanel, BoxLayout.Y_AXIS));
         roomListPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        roomListPanel.setOpaque(false);
 
         roomListScroll = new JScrollPane(roomListPanel);
-        roomListScroll.setPreferredSize(new Dimension(200, 0));
+        roomListScroll.setPreferredSize(new Dimension(220, 0));
+        roomListScroll.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200)));
+        roomListScroll.getViewport().setOpaque(false);
+        roomListScroll.setOpaque(false);
+
+        JPanel roomListContainer = new JPanel(new BorderLayout());
+        roomListContainer.setOpaque(false);
+
+        JLabel roomListLabel = new JLabel("방 목록", SwingConstants.CENTER);
+        roomListLabel.setFont(new Font("맑은 고딕", Font.BOLD, 13));
+        roomListLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+        roomListContainer.add(roomListLabel, BorderLayout.NORTH);
+        roomListContainer.add(roomListScroll, BorderLayout.CENTER);
 
         JPanel centerPanel = new JPanel(new BorderLayout(10, 0));
+        centerPanel.setOpaque(false);
         centerPanel.add(chatScrollPane, BorderLayout.CENTER);
-
-        // 방 목록 상단 라벨
-        JPanel roomListHeader = new JPanel(new BorderLayout());
-        JLabel roomListLabel = new JLabel("방 목록", SwingConstants.CENTER);
-        roomListHeader.add(roomListLabel, BorderLayout.NORTH);
-        roomListHeader.add(roomListScroll, BorderLayout.CENTER);
-
-        centerPanel.add(roomListHeader, BorderLayout.EAST);
+        centerPanel.add(roomListContainer, BorderLayout.EAST);
 
         add(centerPanel, BorderLayout.CENTER);
 
         // ===== 하단: 준비/시작 + 방 생성 =====
         JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.setOpaque(false);
         add(bottomPanel, BorderLayout.SOUTH);
 
         // (1) 준비 / 시작 버튼 영역
         JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        controlPanel.setOpaque(false);
 
         startGameButton = new JButton("게임 시작 (4명 이상)");
         startGameButton.setVisible(false);
@@ -85,19 +124,22 @@ public class WaitingGamePanel extends JPanel {
 
         // (2) 방 생성 / 입장 영역
         JPanel roomCreatePanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        roomCreatePanel.setOpaque(false);
+
         roomCreatePanel.add(new JLabel("방 이름:"));
 
         roomNameField = new JTextField(10);
         roomCreatePanel.add(roomNameField);
 
-        createRoomButton = new JButton("방 입장");
-        createRoomButton.addActionListener(e -> {
+        joinRoomButton = new JButton("방 입장");
+        joinRoomButton.addActionListener(e -> {
             String name = roomNameField.getText().trim();
             if (!name.isEmpty()) {
                 client.joinRoom(name);
             }
         });
-        roomCreatePanel.add(createRoomButton);
+        roomCreatePanel.add(joinRoomButton);
+
         createRoomButton = new JButton("방 생성");
         createRoomButton.addActionListener(e -> {
             String name = roomNameField.getText().trim();
@@ -108,15 +150,16 @@ public class WaitingGamePanel extends JPanel {
         roomCreatePanel.add(createRoomButton);
 
         bottomPanel.add(roomCreatePanel, BorderLayout.SOUTH);
+    }
 
-        // ===== 방 목록 자동 갱신 타이머 =====
-        roomListTimer = new Timer(3000, e -> {
-            // 이 패널이 현재 화면에 표시되고 있을 때만 요청
-            if (isShowing()) {
-                client.requestRoomList();
-            }
-        });
-        roomListTimer.start();
+    // ===================== 배경 이미지 그리기 =====================
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        if (backgroundImage != null) {
+            g.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), this);
+        }
     }
 
     // ===================== 플레이어 목록 / 채팅 =====================

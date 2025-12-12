@@ -189,14 +189,14 @@ public class PlayerSession implements Runnable {
     // ===== /room 명령 처리 =====
 
     private void handleRoomCommand(String cmd) {
+        // /room list
         if (cmd.startsWith("list")) {
-            // 서버의 방 목록 정보를 받아와서 ROOM_LIST:... 형식으로 전송
-            java.util.List<String> infos = server.getRoomInfoList();
-            String payload = String.join(",", infos);
-            send("ROOM_LIST:" + payload);
+            // 서버의 방 목록 정보를 받아와서 SYSTEM:[ROOM_LIST] ... 형식으로 전송
+            server.sendRoomListTo(this);
             return;
         }
 
+        // /room create <이름>
         if (cmd.startsWith("create")) {
             String roomName = cmd.substring("create".length()).trim();
             if (roomName.isEmpty()) {
@@ -210,20 +210,23 @@ public class PlayerSession implements Runnable {
                 return;
             }
 
+            // 현재 방에서 제거
             if (currentRoom != null) {
                 currentRoom.removePlayer(this);
                 server.removeRoomIfEmpty(currentRoom);
             }
 
+            // 새 방에 입장
             currentRoom = room;
             room.addPlayer(this);
 
-            // 🔹 클라이언트가 [방이동] 패턴을 통해 currentRoomName 을 갱신할 수 있도록
-            //    메시지 형식을 통일
+            // 클라이언트의 currentRoomName 을 갱신시키는 SYSTEM 메세지
             send("SYSTEM:[방이동] '" + roomName + "' 방을 생성하고 입장했습니다.");
+
             return;
         }
 
+        // /room join <이름>
         if (cmd.startsWith("join")) {
             String roomName = cmd.substring("join".length()).trim();
             if (roomName.isEmpty()) {
@@ -237,6 +240,12 @@ public class PlayerSession implements Runnable {
                 return;
             }
 
+            // 🔹 게임이 진행 중인 방에는 입장 불가
+            if (!room.isJoinable()) {
+                send("SYSTEM:이미 게임이 진행 중인 방입니다. 게임이 끝난 후에 입장할 수 있습니다.");
+                return;
+            }
+
             if (currentRoom != null) {
                 currentRoom.removePlayer(this);
                 server.removeRoomIfEmpty(currentRoom);
@@ -245,8 +254,9 @@ public class PlayerSession implements Runnable {
             currentRoom = room;
             room.addPlayer(this);
 
-            // 🔹 방 이동 메시지
+            // 방 이동 알림 (클라이언트 currentRoomName 변경용)
             send("SYSTEM:[방이동] '" + roomName + "' 방에 입장했습니다.");
+
             return;
         }
 

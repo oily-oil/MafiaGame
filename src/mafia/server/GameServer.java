@@ -67,15 +67,22 @@ public class GameServer {
                     Socket socket = serverSocket.accept();
 
                     int playerNumber = playerCounter.getAndIncrement();
-                    // 🔹 PlayerSession은 Runnable 이며, 소켓을 직접 처리
+                    // PlayerSession은 Runnable 이며, 소켓을 직접 처리
                     PlayerSession session = new PlayerSession(this, socket, playerNumber);
                     sessions.add(session);
 
-                    // 🔹 기본 방(Lobby)에 자동 입장
+                    // 기본 방(Lobby)에 자동 입장
                     GameRoom lobby = getOrCreateRoom(DEFAULT_ROOM_NAME);
                     session.setCurrentRoom(lobby);
                     lobby.addPlayer(session);
 
+                    // 클라이언트에게 "지금은 Lobby에 있다"는 정보 전달
+                    session.send("SYSTEM:[방이동] '" + DEFAULT_ROOM_NAME + "' 방에 입장했습니다.");
+
+                    // 방 목록 전체를 모든 세션에 브로드캐스트
+                    broadcastRoomListToAll();
+
+                    // 세션 스레드 시작
                     clientPool.execute(session);
                 } catch (IOException e) {
                     if (running) {
@@ -128,8 +135,8 @@ public class GameServer {
     }
 
     /**
-     * /room list 명령 응답용:
-     *  - "방이름 (인원수)" 문자열 목록 반환
+     * 방 목록 정보:
+     *  - "방이름 (인원수명)" 문자열 목록 반환
      */
     public synchronized List<String> getRoomInfoList() {
         List<String> result = new ArrayList<>();
@@ -140,12 +147,38 @@ public class GameServer {
     }
 
     /**
+     * 특정 플레이어에게만 방 목록을 전송
+     *  → 클라이언트는 SYSTEM 메시지의 text가 "[ROOM_LIST] ..." 로 시작하는 것을 파싱함
+     */
+    public void sendRoomListTo(PlayerSession session) {
+        List<String> infos = getRoomInfoList();
+        String payload = String.join(",", infos);
+        session.send("SYSTEM:[ROOM_LIST] " + payload);
+    }
+
+    /**
+     * 현재 모든 방 목록을 모든 세션에 브로드캐스트
+     *  → 새로운 방이 생성/제거/인원수 변경될 때 호출
+     */
+    public void broadcastRoomListToAll() {
+        List<String> infos = getRoomInfoList();
+        String payload = String.join(",", infos);
+        String msg = "SYSTEM:[ROOM_LIST] " + payload;
+
+        for (PlayerSession s : sessions) {
+            s.send(msg);
+        }
+    }
+
+    /**
      * 방에서 플레이어가 나간 뒤, 방이 비었을 경우 GameRoom 쪽에서 호출
      */
     public synchronized void removeRoomIfEmpty(GameRoom room) {
         if (room.getPlayerCount() == 0) {
             rooms.remove(room.getRoomName());
             System.out.println("[SERVER] 방 제거: " + room.getRoomName());
+            // 방이 사라졌으므로 전체에 갱신된 방 목록 브로드캐스트
+            broadcastRoomListToAll();
         }
     }
 
